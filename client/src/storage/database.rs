@@ -174,6 +174,7 @@ impl<T: ClientDB> DevicePreKeyStore<T> {
         Self { db }
     }
 }
+
 #[async_trait(?Send)]
 impl<T: ClientDB> PreKeyStore for DevicePreKeyStore<T> {
     async fn get_pre_key(&self, prekey_id: PreKeyId) -> Result<PreKeyRecord, SignalProtocolError> {
@@ -211,6 +212,7 @@ impl<T: ClientDB> DeviceSignedPreKeyStore<T> {
         Self { db }
     }
 }
+
 #[async_trait(?Send)]
 impl<T: ClientDB> SignedPreKeyStore for DeviceSignedPreKeyStore<T> {
     async fn get_signed_pre_key(

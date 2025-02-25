@@ -6,7 +6,7 @@ use crate::{
     socket_manager::signal_ws_connect,
 };
 use async_native_tls::{Certificate, TlsConnector};
-use axum::http;
+use axum::async_trait;
 use common::signalservice::{web_socket_message, WebSocketMessage, WebSocketRequestMessage};
 use common::web_api::{
     authorization::BasicAuthorizationHeader, PreKeyResponse, RegistrationRequest,
@@ -43,6 +43,7 @@ impl VerifiedSession {
     }
 }
 
+#[async_trait]
 pub trait SignalServerAPI {
     /// Connect with Websockets to the backend.
     async fn connect(
@@ -85,6 +86,10 @@ pub trait SignalServerAPI {
         service_id: &ServiceId,
     ) -> Result<(), SignalClientError>;
 
+    async fn has_message(&mut self) -> bool;
+
+    fn amount_of_messages(&mut self) -> usize;
+
     async fn get_message(&mut self) -> Option<WebSocketRequestMessage>;
 
     async fn send_response(
@@ -125,6 +130,7 @@ impl Display for ReqType {
     }
 }
 
+#[async_trait]
 impl SignalServerAPI for SignalServer {
     async fn connect(
         &mut self,
@@ -229,7 +235,7 @@ impl SignalServerAPI for SignalServer {
         println!("Sending message to: {}", uri);
 
         let id = self.socket_manager.next_id();
-        let response = self
+        let _response = self
             .socket_manager
             .send(
                 id,
@@ -262,6 +268,10 @@ impl SignalServerAPI for SignalServer {
             .map_err(SendMessageError::WebSocketError)?;
 
         Ok(())
+    }
+
+    async fn has_message(&mut self) -> bool {
+        self.message_queue.is_empty().await == false
     }
 
     async fn get_message(&mut self) -> Option<WebSocketRequestMessage> {

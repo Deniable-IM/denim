@@ -1,6 +1,6 @@
 use crate::{
     contact_manager::ContactManager,
-    encryption::{encrypt, pad_message, unpad_message},
+    encryption::{encrypt, pad_message},
     errors::{
         DatabaseError, ProcessPreKeyBundleError, ReceiveMessageError, Result, SignalClientError,
     },
@@ -21,10 +21,7 @@ use common::{
 };
 use core::str;
 use libsignal_core::{Aci, DeviceId, Pni, ProtocolAddress, ServiceId};
-use libsignal_protocol::{
-    message_decrypt, process_prekey_bundle, CiphertextMessage, CiphertextMessageType,
-    IdentityKeyPair, SignalProtocolError,
-};
+use libsignal_protocol::{process_prekey_bundle, CiphertextMessage, IdentityKeyPair};
 use prost::Message;
 use rand::{rngs::OsRng, Rng};
 use sqlx::{migrate::MigrateDatabase, Sqlite, SqlitePool};
@@ -324,6 +321,10 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
                 self.server_api.send_msg(&msgs, &service_id).await
             }
         }
+    }
+
+    pub async fn has_message(&mut self) -> bool {
+        self.server_api.has_message().await
     }
 
     pub async fn receive_message(&mut self) -> Result<ProcessedEnvelope> {

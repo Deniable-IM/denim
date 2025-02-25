@@ -285,7 +285,7 @@ impl<T: WSStream<Message, tungstenite::Error> + std::fmt::Debug> SocketManager<T
     }
 
     pub fn next_id(&mut self) -> u64 {
-        self.next_id.fetch_add(1, Ordering::Relaxed)
+        self.next_id.fetch_add(1, Ordering::SeqCst)
     }
 
     pub fn subscribe(&self) -> Receiver<MessageType> {
