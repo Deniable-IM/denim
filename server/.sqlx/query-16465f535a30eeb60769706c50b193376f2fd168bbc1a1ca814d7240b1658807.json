@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT aci, \n                   pni, \n                   aci_identity_key, \n                   pni_identity_key, \n                   phone_number\n            FROM accounts\n            WHERE aci = $1 \n               OR pni = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "aci",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "pni",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "aci_identity_key",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 3,
+        "name": "pni_identity_key",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 4,
+        "name": "phone_number",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "16465f535a30eeb60769706c50b193376f2fd168bbc1a1ca814d7240b1658807"
+}

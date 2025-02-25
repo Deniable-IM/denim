@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO device_keys (owner, aci_signed_pre_key, pni_signed_pre_key, aci_pq_last_resort_pre_key, pni_pq_last_resort_pre_key)\n            SELECT devices.id, \n                   aci_signed_pre_key_store.id, \n                   pni_signed_pre_key_store.id, \n                   aci_pq_last_resort_pre_key_store.id, \n                   pni_pq_last_resort_pre_key_store.id\n            FROM devices \n            INNER JOIN aci_signed_pre_key_store ON aci_signed_pre_key_store.owner = devices.id\n            INNER JOIN pni_signed_pre_key_store ON pni_signed_pre_key_store.owner = devices.id\n            INNER JOIN aci_pq_last_resort_pre_key_store ON aci_pq_last_resort_pre_key_store.owner = devices.id\n            INNER JOIN pni_pq_last_resort_pre_key_store ON pni_pq_last_resort_pre_key_store.owner = devices.id\n            WHERE devices.owner = \n                    (SELECT id\n                     FROM accounts\n                     WHERE aci = $1 \n                        OR pni = $1) \n              AND devices.device_id = $2\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f15df1ce505f989857d56682db2cd40985256ebeb5bfc2a7a7ac955f802081cc"
+}

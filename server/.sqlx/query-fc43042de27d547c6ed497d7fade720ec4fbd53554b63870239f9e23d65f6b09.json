@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO one_time_ec_pre_key_store (owner, key_id, public_key)\n                SELECT id, \n                       $3, \n                       $4\n                FROM devices\n                WHERE owner = \n                        (SELECT id\n                         FROM accounts\n                         WHERE aci = $1 \n                            OR pni = $1)\n                  AND devices.device_id = $2\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fc43042de27d547c6ed497d7fade720ec4fbd53554b63870239f9e23d65f6b09"
+}

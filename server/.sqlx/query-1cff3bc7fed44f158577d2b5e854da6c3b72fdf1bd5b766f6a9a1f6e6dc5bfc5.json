@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE accounts\n            SET pni = $2\n            WHERE aci = $1 \n               OR pni = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1cff3bc7fed44f158577d2b5e854da6c3b72fdf1bd5b766f6a9a1f6e6dc5bfc5"
+}
