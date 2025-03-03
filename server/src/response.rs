@@ -3,18 +3,6 @@ use serde::Serialize;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct IdentifierResponse {
-    pub aci_identity_key: String,
-}
-
-impl IntoResponse for IdentifierResponse {
-    fn into_response(self) -> Response {
-        Json(self).into_response()
-    }
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct SendMessageResponse {
     pub needs_sync: bool,
 }

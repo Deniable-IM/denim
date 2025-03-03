@@ -11,7 +11,7 @@ use crate::{
     },
     postgres::PostgresDatabase,
     query::CheckKeysRequest,
-    response::{IdentifierResponse, LinkDeviceResponse, LinkDeviceToken, SendMessageResponse},
+    response::{LinkDeviceResponse, LinkDeviceToken, SendMessageResponse},
     validators::{
         destination_device_validator::DestinationDeviceValidator,
         pre_key_signature_validator::PreKeySignatureValidator,
@@ -527,7 +527,7 @@ fn parse_service_id(string: String) -> Result<ServiceId, ApiError> {
 #[debug_handler]
 async fn get_identifier_endpoint(
     State(state): State<SignalServerState<PostgresDatabase, SignalWebSocket>>,
-    //authenticated_device: AuthenticatedDevice,
+    authenticated_device: AuthenticatedDevice,
     Path(phone_number): Path<String>,
 ) -> Result<String, ApiError> {
     Ok(state
