@@ -21,6 +21,8 @@ pub enum SignalClientError {
     #[from]
     RegistrationError(RegistrationError),
     #[from]
+    IdentifierError(IdentifierError),
+    #[from]
     SendMessageError(SendMessageError),
     WebSocketError(String),
     #[from]
@@ -83,6 +85,31 @@ impl fmt::Display for RegistrationError {
 }
 
 impl Error for RegistrationError {}
+
+pub enum IdentifierError {
+    NoResponse,
+    BadResponse(String),
+}
+
+impl fmt::Debug for IdentifierError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self::Display::fmt(&self, f)
+    }
+}
+
+impl fmt::Display for IdentifierError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let message = match self {
+            Self::NoResponse => "The server did not respond to the identifier request.".to_owned(),
+            Self::BadResponse(s) => {
+                format!("Bad response from server: {s}")
+            }
+        };
+        write!(f, "Could not get identifier for account - {}", message)
+    }
+}
+
+impl Error for IdentifierError {}
 
 pub enum SendMessageError {
     EncryptionError(SignalProtocolError),

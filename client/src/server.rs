@@ -1,4 +1,4 @@
-use crate::errors::SendMessageError;
+use crate::errors::{IdentifierError, SendMessageError};
 use crate::socket_manager::{SignalStream, SocketManager};
 use crate::{
     errors::{RegistrationError, SignalClientError},
@@ -28,6 +28,7 @@ use surf::{http::convert::json, Client, Config, Url};
 use surf::{Request, Response, StatusCode};
 
 const REGISTER_URI: &str = "v1/registration";
+const GET_SERVICE_ID_URI: &str = "v1/identifier";
 const MSG_URI: &str = "/v1/messages";
 const KEY_BUNDLE_URI: &str = "/v2/keys";
 
@@ -79,6 +80,11 @@ pub trait SignalServerAPI {
         session: Option<&VerifiedSession>,
     ) -> Result<RegistrationResponse, SignalClientError>;
 
+    async fn get_service_id_from_server(
+        &self,
+        phone_number: &str,
+    ) -> Result<ServiceId, SignalClientError>;
+
     /// Send a message to another user.
     async fn send_msg(
         &mut self,
@@ -87,8 +93,6 @@ pub trait SignalServerAPI {
     ) -> Result<(), SignalClientError>;
 
     async fn has_message(&mut self) -> bool;
-
-    fn amount_of_messages(&mut self) -> usize;
 
     async fn get_message(&mut self) -> Option<WebSocketRequestMessage>;
 
@@ -217,6 +221,42 @@ impl SignalServerAPI for SignalServer {
         } else {
             Err(SignalClientError::RegistrationError(
                 RegistrationError::BadResponse(format!(
+                    "Received {}: {:?}",
+                    res.status(),
+                    res.body_string().await
+                )),
+            ))
+        }
+    }
+
+    async fn get_service_id_from_server(
+        &self,
+        phone_number: &str,
+    ) -> Result<ServiceId, SignalClientError> {
+        let header = match &self.auth_header {
+            Some(header) => header,
+            _ => Err(SignalClientError::NoSession)?,
+        };
+        let mut res = self
+            .http_client
+            .get(format!("{}/{}", GET_SERVICE_ID_URI, phone_number))
+            .header("Authorization", header.encode())
+            .await
+            .map_err(|_| IdentifierError::NoResponse)?;
+        println!(
+            "Sent GET request to /{}/{}",
+            GET_SERVICE_ID_URI, phone_number
+        );
+        if res.status().is_success() {
+            Ok(ServiceId::parse_from_service_id_string(
+                &res.body_string()
+                    .await
+                    .map_err(|err| IdentifierError::BadResponse(format!("{err}")))?,
+            )
+            .expect("Will be uuid"))
+        } else {
+            Err(SignalClientError::IdentifierError(
+                IdentifierError::BadResponse(format!(
                     "Received {}: {:?}",
                     res.status(),
                     res.body_string().await

@@ -238,6 +238,8 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
             .connect(&aci.service_id_string(), &password, server_url, cert_path)
             .await?;
 
+        server_api.create_auth_header(aci, password.clone(), 1.into());
+
         Ok(Client::new(
             device.get_aci().await.map_err(DatabaseError::from)?,
             device.get_pni().await.map_err(DatabaseError::from)?,
@@ -246,6 +248,12 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
             KeyManager::new(signed + 1, kyber + 1, one_time + 1), // Adds 1 to prevent reusing key ids
             Storage::new(device.clone(), ProtocolStore::new(device.clone())),
         ))
+    }
+
+    pub async fn get_service_id_from_server(&mut self, phone_number: &str) -> Result<ServiceId> {
+        self.server_api
+            .get_service_id_from_server(phone_number)
+            .await
     }
 
     pub async fn disconnect(&mut self) {
@@ -391,6 +399,14 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
 
         let device_ids = self.get_new_device_ids(&service_id).await?;
         self.update_contact(alias, device_ids).await
+    }
+
+    pub async fn has_contact(&mut self, alias: &str) -> bool {
+        self.storage
+            .device
+            .get_service_id_by_nickname(alias)
+            .await
+            .is_ok()
     }
 
     pub async fn remove_contact(&mut self, alias: &str) -> Result<()> {

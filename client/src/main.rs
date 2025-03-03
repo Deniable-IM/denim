@@ -117,33 +117,37 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let default_sender = "Unknown Sender".to_owned();
 
     let send_regex = Regex::new(r"send:(?<alias>\w+):(?<text>(\w+\s)*)").unwrap();
-    let add_contact_regex =
-        Regex::new(r"add:(?<alias>\w+):(?<id>\w{8}-\w{4}-\w{4}-\w{4}-\w{12})").unwrap();
     loop {
         println!("Enter command: ");
         let mut input = String::new();
         std::io::stdin().read_line(&mut input)?;
         if input.starts_with("send") {
             if let Some(caps) = send_regex.captures(&input) {
+                if !user.has_contact(&caps["alias"]).await {
+                    match user.get_service_id_from_server(&caps["alias"]).await {
+                        Ok(service_id) => {
+                            user.add_contact(
+                                &caps["alias"],
+                                &service_id,
+                            )
+                            .await
+                            .expect("No bob?");
+                            contact_names.insert(service_id.service_id_string(), caps["alias"].to_owned());
+                        },
+                        Err(err) => {
+                            println!("{}", err);
+                            continue;
+                        }
+                    }
+                }
+
                 user.send_message(&caps["text"], &caps["alias"]).await?;
             } else {
                 println!("Not valid send command format")
             };
-        } else if input.starts_with("add") {
-            if let Some(caps) = add_contact_regex.captures(&input) {
-                user.add_contact(
-                    &caps["alias"],
-                    &ServiceId::parse_from_service_id_string(&caps["id"]).expect("is always uuid"),
-                )
-                .await
-                .expect("No bob?");
-                contact_names.insert(caps["id"].to_owned(), caps["alias"].to_owned());
-            } else {
-                println!("Not valid add contact command format")
-            };
         } else if input.starts_with("read") {
             receive_all_messages(&mut user, &contact_names, &default_sender).await;
-        } else if input.starts_with("stop") {
+        } else if input.starts_with("stop") || input.starts_with("quit") {
             break;
         }
         println!("")

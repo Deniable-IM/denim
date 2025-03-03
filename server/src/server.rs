@@ -11,7 +11,7 @@ use crate::{
     },
     postgres::PostgresDatabase,
     query::CheckKeysRequest,
-    response::{LinkDeviceResponse, LinkDeviceToken, SendMessageResponse},
+    response::{IdentifierResponse, LinkDeviceResponse, LinkDeviceToken, SendMessageResponse},
     validators::{
         destination_device_validator::DestinationDeviceValidator,
         pre_key_signature_validator::PreKeySignatureValidator,
@@ -162,7 +162,7 @@ pub async fn handle_keepalive<T: SignalDatabase, U: WSStream<Message, axum::Erro
             .get(&authenticated_device.get_protocol_address(ServiceIdKind::Aci))
             .await
         {
-            connection
+            let _ = connection
                 .lock()
                 .await
                 .close_reason(1000, "OK")
@@ -174,22 +174,11 @@ pub async fn handle_keepalive<T: SignalDatabase, U: WSStream<Message, axum::Erro
     Ok(())
 }
 
-async fn handle_get_messages<T: SignalDatabase, U: WSStream<Message, axum::Error> + Debug>(
-    state: SignalServerState<T, U>,
-    address: ProtocolAddress,
-) {
-    todo!("Get messages")
-}
-
 async fn handle_post_registration<T: SignalDatabase, U: WSStream<Message, axum::Error> + Debug>(
     state: SignalServerState<T, U>,
     auth_header: BasicAuthorizationHeader,
     registration: RegistrationRequest,
 ) -> Result<RegistrationResponse, ApiError> {
-    println!(
-        "registraion aci: {}",
-        BASE64_STANDARD.encode(registration.aci_identity_key().public_key().serialize())
-    );
     let time_now = time_now()?;
     let phone_number = auth_header.username();
     let hash = SaltedTokenHash::generate_for(auth_header.password())?;
@@ -536,6 +525,25 @@ fn parse_service_id(string: String) -> Result<ServiceId, ApiError> {
 
 /// Handler for the PUT v1/messages/{address} endpoint.
 #[debug_handler]
+async fn get_identifier_endpoint(
+    State(state): State<SignalServerState<PostgresDatabase, SignalWebSocket>>,
+    //authenticated_device: AuthenticatedDevice,
+    Path(phone_number): Path<String>,
+) -> Result<String, ApiError> {
+    Ok(state
+        .account_manager
+        .get_account_from_phonenumber_without_devices(&phone_number)
+        .await
+        .map_err(|err| ApiError {
+            status_code: StatusCode::BAD_REQUEST,
+            body: format!("Could not get ACI: {}", err),
+        })?
+        .aci()
+        .service_id_string())
+}
+
+/// Handler for the PUT v1/messages/{address} endpoint.
+#[debug_handler]
 async fn put_messages_endpoint(
     State(state): State<SignalServerState<PostgresDatabase, SignalWebSocket>>,
     authenticated_device: AuthenticatedDevice,
@@ -810,6 +818,7 @@ pub async fn start_server(use_tls: bool) -> Result<(), Box<dyn std::error::Error
 
     let app = Router::new()
         .route("/", get(|| async { "Hello from Signal Server" }))
+        .route("/v1/identifier/:phone_number", get(get_identifier_endpoint))
         .route("/v1/messages/:destination", put(put_messages_endpoint))
         .route("/v1/registration", post(post_registration_endpoint))
         .route(
