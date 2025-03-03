@@ -126,14 +126,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 if !user.has_contact(&caps["alias"]).await {
                     match user.get_service_id_from_server(&caps["alias"]).await {
                         Ok(service_id) => {
-                            user.add_contact(
-                                &caps["alias"],
-                                &service_id,
-                            )
-                            .await
-                            .expect("No bob?");
-                            contact_names.insert(service_id.service_id_string(), caps["alias"].to_owned());
-                        },
+                            user.add_contact(&caps["alias"], &service_id)
+                                .await
+                                .expect("No bob?");
+                            contact_names
+                                .insert(service_id.service_id_string(), caps["alias"].to_owned());
+                        }
                         Err(err) => {
                             println!("{}", err);
                             continue;

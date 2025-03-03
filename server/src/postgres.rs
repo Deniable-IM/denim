@@ -125,7 +125,10 @@ impl SignalDatabase for PostgresDatabase {
         .map_err(|err| err.into())
     }
 
-    async fn get_account_from_phonenumber_without_devices(&self, phone_number: &str) -> Result<Account> {
+    async fn get_account_from_phonenumber_without_devices(
+        &self,
+        phone_number: &str,
+    ) -> Result<Account> {
         sqlx::query!(
             r#"
             SELECT aci, 

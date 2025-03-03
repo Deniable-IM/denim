@@ -85,9 +85,16 @@ impl<W: WSStream<Message, Error> + Debug + Send + 'static, DB: SignalDatabase + 
             .map_err(|_| "Time went backwards".to_string())?;
         match self.send(Message::Binary(msg.encode_to_vec())).await {
             Ok(_) => {
-                self.state.message_manager.delete(&self.protocol_address(), vec![message.server_guid().to_owned()]).await.map_err(|err| format!("{}", err))?;
+                self.state
+                    .message_manager
+                    .delete(
+                        &self.protocol_address(),
+                        vec![message.server_guid().to_owned()],
+                    )
+                    .await
+                    .map_err(|err| format!("{}", err))?;
                 Ok(())
-            },
+            }
             Err(err) => Err(format!("{}", err)),
         }
     }

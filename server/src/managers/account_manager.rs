@@ -59,8 +59,13 @@ where
         self.db.get_account(service_id).await
     }
 
-    pub async fn get_account_from_phonenumber_without_devices(&self, phone_number: &str) -> Result<Account> {
-        self.db.get_account_from_phonenumber_without_devices(phone_number).await
+    pub async fn get_account_from_phonenumber_without_devices(
+        &self,
+        phone_number: &str,
+    ) -> Result<Account> {
+        self.db
+            .get_account_from_phonenumber_without_devices(phone_number)
+            .await
     }
 
     pub async fn update_account_aci(&self, service_id: &ServiceId, new_aci: Aci) -> Result<()> {
