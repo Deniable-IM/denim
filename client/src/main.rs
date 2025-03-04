@@ -145,6 +145,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
             };
         } else if input.starts_with("read") {
             receive_all_messages(&mut user, &contact_names, &default_sender).await;
+        } else if input.starts_with("help") {
+            println!("Supported commands are:");
+            println!("  send:{{phone_number}}:{{message}}");
+            println!("  read");
+            println!("  help");
+            println!("  quit");
         } else if input.starts_with("stop") || input.starts_with("quit") {
             break;
         }
