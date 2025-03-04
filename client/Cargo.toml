@@ -35,6 +35,9 @@ rustls-pemfile = "2.2.0"
 derive_more = { version = "1.0.0", features = ["display", "error", "from"] }
 display = "0.1.2"
 flate2 = "1.0.35"
+regex = "1.11.1"
+log = "0.4.25"
+simple_logger = "5.0.0"
 
 [build-dependencies]
 tonic-build = "0.12.3"

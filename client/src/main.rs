@@ -1,6 +1,7 @@
-use axum::serve;
 use client::Client;
 use dotenv::dotenv;
+use libsignal_core::ServiceId;
+use regex::Regex;
 use server::SignalServer;
 use std::{
     collections::HashMap,
@@ -76,22 +77,6 @@ fn get_server_info() -> (Option<String>, String) {
     }
 }
 
-async fn add_name(
-    names: &mut HashMap<String, String>,
-    client: &Client<Device, SignalServer>,
-    name: &str,
-) {
-    names.insert(
-        client
-            .storage
-            .get_aci()
-            .await
-            .expect("No ACI")
-            .service_id_string(),
-        name.to_owned(),
-    );
-}
-
 async fn receive_message(
     client: &mut Client<Device, SignalServer>,
     names: &HashMap<String, String>,
@@ -109,40 +94,69 @@ async fn receive_message(
     println!("{name}: {msg_text}");
 }
 
+async fn receive_all_messages(
+    client: &mut Client<Device, SignalServer>,
+    names: &HashMap<String, String>,
+    default: &String,
+) {
+    while client.has_message().await {
+        receive_message(client, names, default).await;
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    let args: Vec<String> = env::args().collect();
     dotenv()?;
 
     let (cert_path, server_url) = get_server_info();
-    let mut alice = make_client("alice", "123456789", &cert_path, &server_url).await;
-    let mut bob = make_client("bob", "123456784", &cert_path, &server_url).await;
-
-    alice
-        .add_contact("bob", &bob.aci.into())
-        .await
-        .expect("No bob?");
-    bob.add_contact("alice", &alice.aci.into())
-        .await
-        .expect("No alice?");
+    let mut user = make_client(&args[1], &args[2], &cert_path, &server_url).await;
+    println!("Started client with id: {}", &user.aci.service_id_string());
 
     let mut contact_names = HashMap::new();
     let default_sender = "Unknown Sender".to_owned();
-    add_name(&mut contact_names, &alice, "Alice").await;
-    add_name(&mut contact_names, &bob, "Bob").await;
 
-    alice.send_message("Hello Bob!", "bob").await?;
-    receive_message(&mut bob, &contact_names, &default_sender).await;
+    let send_regex = Regex::new(r"send:(?<alias>\w+):(?<text>(\w+\s)*)").unwrap();
+    loop {
+        println!("Enter command: ");
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)?;
+        if input.starts_with("send") {
+            if let Some(caps) = send_regex.captures(&input) {
+                if !user.has_contact(&caps["alias"]).await {
+                    match user.get_service_id_from_server(&caps["alias"]).await {
+                        Ok(service_id) => {
+                            user.add_contact(&caps["alias"], &service_id)
+                                .await
+                                .expect("No bob?");
+                            contact_names
+                                .insert(service_id.service_id_string(), caps["alias"].to_owned());
+                        }
+                        Err(err) => {
+                            println!("{}", err);
+                            continue;
+                        }
+                    }
+                }
 
-    bob.send_message("Hello Alice!", "alice").await?;
-    receive_message(&mut alice, &contact_names, &default_sender).await;
+                user.send_message(&caps["text"], &caps["alias"]).await?;
+            } else {
+                println!("Not valid send command format")
+            };
+        } else if input.starts_with("read") {
+            receive_all_messages(&mut user, &contact_names, &default_sender).await;
+        } else if input.starts_with("help") {
+            println!("Supported commands are:");
+            println!("  send:{{phone_number}}:{{message}}");
+            println!("  read");
+            println!("  help");
+            println!("  quit");
+        } else if input.starts_with("stop") || input.starts_with("quit") {
+            break;
+        }
+        println!("")
+    }
 
-    alice.send_message("Hello Bob again!", "bob").await?;
-    receive_message(&mut bob, &contact_names, &default_sender).await;
-
-    bob.send_message("Hello Alice again!", "alice").await?;
-    receive_message(&mut alice, &contact_names, &default_sender).await;
-
-    alice.disconnect().await;
-    bob.disconnect().await;
+    user.disconnect().await;
     Ok(())
 }

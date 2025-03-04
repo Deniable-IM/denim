@@ -1,4 +1,4 @@
-use crate::errors::SendMessageError;
+use crate::errors::{IdentifierError, SendMessageError};
 use crate::socket_manager::{SignalStream, SocketManager};
 use crate::{
     errors::{RegistrationError, SignalClientError},
@@ -6,7 +6,7 @@ use crate::{
     socket_manager::signal_ws_connect,
 };
 use async_native_tls::{Certificate, TlsConnector};
-use axum::http;
+use axum::async_trait;
 use common::signalservice::{web_socket_message, WebSocketMessage, WebSocketRequestMessage};
 use common::web_api::{
     authorization::BasicAuthorizationHeader, PreKeyResponse, RegistrationRequest,
@@ -28,6 +28,7 @@ use surf::{http::convert::json, Client, Config, Url};
 use surf::{Request, Response, StatusCode};
 
 const REGISTER_URI: &str = "v1/registration";
+const GET_SERVICE_ID_URI: &str = "v1/identifier";
 const MSG_URI: &str = "/v1/messages";
 const KEY_BUNDLE_URI: &str = "/v2/keys";
 
@@ -43,6 +44,7 @@ impl VerifiedSession {
     }
 }
 
+#[async_trait]
 pub trait SignalServerAPI {
     /// Connect with Websockets to the backend.
     async fn connect(
@@ -78,12 +80,19 @@ pub trait SignalServerAPI {
         session: Option<&VerifiedSession>,
     ) -> Result<RegistrationResponse, SignalClientError>;
 
+    async fn get_service_id_from_server(
+        &self,
+        phone_number: &str,
+    ) -> Result<ServiceId, SignalClientError>;
+
     /// Send a message to another user.
     async fn send_msg(
         &mut self,
         messages: &SignalMessages,
         service_id: &ServiceId,
     ) -> Result<(), SignalClientError>;
+
+    async fn has_message(&mut self) -> bool;
 
     async fn get_message(&mut self) -> Option<WebSocketRequestMessage>;
 
@@ -125,6 +134,7 @@ impl Display for ReqType {
     }
 }
 
+#[async_trait]
 impl SignalServerAPI for SignalServer {
     async fn connect(
         &mut self,
@@ -219,6 +229,42 @@ impl SignalServerAPI for SignalServer {
         }
     }
 
+    async fn get_service_id_from_server(
+        &self,
+        phone_number: &str,
+    ) -> Result<ServiceId, SignalClientError> {
+        let header = match &self.auth_header {
+            Some(header) => header,
+            _ => Err(SignalClientError::NoSession)?,
+        };
+        let mut res = self
+            .http_client
+            .get(format!("{}/{}", GET_SERVICE_ID_URI, phone_number))
+            .header("Authorization", header.encode())
+            .await
+            .map_err(|_| IdentifierError::NoResponse)?;
+        println!(
+            "Sent GET request to /{}/{}",
+            GET_SERVICE_ID_URI, phone_number
+        );
+        if res.status().is_success() {
+            Ok(ServiceId::parse_from_service_id_string(
+                &res.body_string()
+                    .await
+                    .map_err(|err| IdentifierError::BadResponse(format!("{err}")))?,
+            )
+            .expect("Will be uuid"))
+        } else {
+            Err(SignalClientError::IdentifierError(
+                IdentifierError::BadResponse(format!(
+                    "Received {}: {:?}",
+                    res.status(),
+                    res.body_string().await
+                )),
+            ))
+        }
+    }
+
     async fn send_msg(
         &mut self,
         messages: &SignalMessages,
@@ -229,7 +275,7 @@ impl SignalServerAPI for SignalServer {
         println!("Sending message to: {}", uri);
 
         let id = self.socket_manager.next_id();
-        let response = self
+        let _response = self
             .socket_manager
             .send(
                 id,
@@ -262,6 +308,10 @@ impl SignalServerAPI for SignalServer {
             .map_err(SendMessageError::WebSocketError)?;
 
         Ok(())
+    }
+
+    async fn has_message(&mut self) -> bool {
+        self.message_queue.is_empty().await == false
     }
 
     async fn get_message(&mut self) -> Option<WebSocketRequestMessage> {

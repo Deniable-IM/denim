@@ -125,6 +125,37 @@ impl SignalDatabase for PostgresDatabase {
         .map_err(|err| err.into())
     }
 
+    async fn get_account_from_phonenumber_without_devices(
+        &self,
+        phone_number: &str,
+    ) -> Result<Account> {
+        sqlx::query!(
+            r#"
+            SELECT aci, 
+                   pni, 
+                   aci_identity_key, 
+                   pni_identity_key, 
+                   phone_number
+            FROM accounts
+            WHERE phone_number = $1
+            "#,
+            phone_number,
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map(|row| {
+            Account::from_db(
+                Aci::parse_from_service_id_string(&row.aci).unwrap(),
+                Pni::parse_from_service_id_string(&row.pni).unwrap(),
+                IdentityKey::new(PublicKey::deserialize(row.aci_identity_key.as_slice()).unwrap()),
+                IdentityKey::new(PublicKey::deserialize(row.pni_identity_key.as_slice()).unwrap()),
+                Vec::new(),
+                row.phone_number,
+            )
+        })
+        .map_err(|err| err.into())
+    }
+
     async fn update_account_aci(&self, service_id: &ServiceId, new_aci: Aci) -> Result<()> {
         sqlx::query!(
             r#"

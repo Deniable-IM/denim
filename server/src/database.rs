@@ -18,6 +18,11 @@ pub trait SignalDatabase: Clone + Send + Sync + 'static {
     /// it if the account only has a PNI in the database.
     async fn get_account(&self, service_id: &ServiceId) -> Result<Account>;
 
+    async fn get_account_from_phonenumber_without_devices(
+        &self,
+        phone_number: &str,
+    ) -> Result<Account>;
+
     /// Add device
     async fn add_device(&self, service_id: &ServiceId, device: &Device) -> Result<()>;
     /// Get all devices owned by account

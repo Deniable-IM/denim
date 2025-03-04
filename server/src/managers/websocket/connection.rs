@@ -81,10 +81,20 @@ impl<W: WSStream<Message, Error> + Debug + Send + 'static, DB: SignalDatabase + 
 
     pub async fn send_message(&mut self, message: Envelope) -> Result<(), String> {
         let msg = self
-            .create_message(message)
+            .create_message(message.clone())
             .map_err(|_| "Time went backwards".to_string())?;
         match self.send(Message::Binary(msg.encode_to_vec())).await {
-            Ok(_) => Ok(()),
+            Ok(_) => {
+                self.state
+                    .message_manager
+                    .delete(
+                        &self.protocol_address(),
+                        vec![message.server_guid().to_owned()],
+                    )
+                    .await
+                    .map_err(|err| format!("{}", err))?;
+                Ok(())
+            }
             Err(err) => Err(format!("{}", err)),
         }
     }
@@ -99,6 +109,8 @@ impl<W: WSStream<Message, Error> + Debug + Send + 'static, DB: SignalDatabase + 
             println!("Failed to fetch messages");
             return false;
         };
+
+        println!("Sending {} messages", envelopes.len());
 
         for envelope in envelopes {
             let _ = self
@@ -741,15 +753,6 @@ pub(crate) mod test {
             .add_message_availability_listener(&address, listener)
             .await;
         state.message_manager.insert(&address, &mut env).await;
-        assert_eq!(
-            state
-                .message_manager
-                .get_messages_for_device(&address, true)
-                .await
-                .unwrap()
-                .len(),
-            1
-        );
 
         let msg = match receiver.recv().await {
             Some(Message::Binary(x)) => {

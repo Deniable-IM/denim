@@ -56,6 +56,9 @@ impl SignalDatabase for MockDB {
     async fn get_account(&self, _: &ServiceId) -> Result<Account> {
         todo!()
     }
+    async fn get_account_from_phonenumber_without_devices(&self, _: &str) -> Result<Account> {
+        todo!()
+    }
     async fn update_account_aci(&self, _: &ServiceId, _: Aci) -> Result<()> {
         todo!()
     }
@@ -139,7 +142,7 @@ impl SignalDatabase for MockDB {
     }
 
     async fn delete_messages(&self, _: &ProtocolAddress) -> Result<Vec<Envelope>> {
-        todo!()
+        Ok(Vec::new())
     }
 }
 
