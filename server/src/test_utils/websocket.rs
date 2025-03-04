@@ -142,7 +142,7 @@ impl SignalDatabase for MockDB {
     }
 
     async fn delete_messages(&self, _: &ProtocolAddress) -> Result<Vec<Envelope>> {
-        todo!()
+        Ok(Vec::new())
     }
 }
 

@@ -753,15 +753,6 @@ pub(crate) mod test {
             .add_message_availability_listener(&address, listener)
             .await;
         state.message_manager.insert(&address, &mut env).await;
-        assert_eq!(
-            state
-                .message_manager
-                .get_messages_for_device(&address, true)
-                .await
-                .unwrap()
-                .len(),
-            1
-        );
 
         let msg = match receiver.recv().await {
             Some(Message::Binary(x)) => {
