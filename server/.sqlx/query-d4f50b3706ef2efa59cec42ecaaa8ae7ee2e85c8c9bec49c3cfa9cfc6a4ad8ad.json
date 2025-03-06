@@ -1,0 +1,53 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT device_id,\n                   name,\n                   auth_token,\n                   salt,\n                   registration_id,\n                   pni_registration_id\n            FROM devices\n            WHERE owner =\n                    (SELECT id\n                     FROM accounts\n                     WHERE aci = $1 \n                        OR pni = $1)\n              AND device_id = $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "device_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 2,
+        "name": "auth_token",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "salt",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "registration_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "pni_registration_id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "d4f50b3706ef2efa59cec42ecaaa8ae7ee2e85c8c9bec49c3cfa9cfc6a4ad8ad"
+}

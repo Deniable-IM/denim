@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                capability_type\n            FROM\n                device_capabilities\n            WHERE\n                owner = (\n                    SELECT\n                        id\n                    FROM\n                        devices\n                    WHERE\n                        owner = (\n                            SELECT\n                                id\n                            FROM\n                                accounts\n                            WHERE\n                                aci = $1 OR\n                                pni = $1\n                        )\n                        AND device_id = $2\n                )\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "capability_type",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "ce4b8bf40268f267b2fdeab21ab954c286c3c5b1a2d649b5282ff7c0b0cf50b5"
+}

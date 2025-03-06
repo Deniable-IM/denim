@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT COUNT(*) AS pre_key_count\n            FROM one_time_pq_pre_key_store\n            INNER JOIN devices on devices.id = one_time_pq_pre_key_store.owner\n            WHERE devices.owner = \n                    (SELECT id\n                     FROM accounts\n                     WHERE aci = $1 \n                        OR pni = $1)\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "pre_key_count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "aef9dcc8d75e82383ad4a1041487247eca0ba2bfe0ea7b555e7ad7878e689e3a"
+}

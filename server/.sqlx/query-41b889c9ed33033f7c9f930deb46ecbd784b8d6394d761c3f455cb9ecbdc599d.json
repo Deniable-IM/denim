@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO devices (owner, device_id, name, auth_token, salt, registration_id, pni_registration_id)\n            SELECT id, \n                   $2, \n                   $3, \n                   $4, \n                   $5, \n                   $6, \n                   $7\n            FROM accounts\n            WHERE aci = $1 \n               OR pni = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Bytea",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "41b889c9ed33033f7c9f930deb46ecbd784b8d6394d761c3f455cb9ecbdc599d"
+}

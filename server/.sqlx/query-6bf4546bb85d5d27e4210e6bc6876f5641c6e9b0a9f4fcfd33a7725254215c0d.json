@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE \n            FROM accounts\n            WHERE aci = $1 \n               OR pni = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6bf4546bb85d5d27e4210e6bc6876f5641c6e9b0a9f4fcfd33a7725254215c0d"
+}

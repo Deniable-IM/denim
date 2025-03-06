@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH key AS \n            (DELETE \n             FROM one_time_pq_pre_key_store\n             WHERE id IN\n                (SELECT one_time_pq_pre_key_store.id\n                 FROM one_time_pq_pre_key_store\n                 INNER JOIN devices on devices.id = one_time_pq_pre_key_store.owner\n                 WHERE devices.owner =\n                        (SELECT id\n                         FROM accounts\n                         WHERE aci = $1 \n                            OR pni = $1)\n                   AND devices.device_id = $2\n                 LIMIT 1) RETURNING key_id, \n                                    public_key, \n                                    signature)\n            SELECT key_id, \n                   public_key, \n                   signature\n            FROM key\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "key_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "public_key",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 2,
+        "name": "signature",
+        "type_info": "Bytea"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "42a58c8aaef5bdd07fb2a9fd54ad182c2cdec36654f1934520ac1d6e37e88c33"
+}

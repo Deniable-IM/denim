@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO msq_queue (receiver, msg)\n                SELECT id, \n                       $1\n                FROM devices\n                WHERE owner = \n                        (SELECT id\n                         FROM accounts\n                         WHERE aci = $2 \n                            OR pni = $2)\n                  AND device_id = $3\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "96e77801b33e35b906fdc935b5e1031bbd58de52f951fe6d4b969477a88c776f"
+}

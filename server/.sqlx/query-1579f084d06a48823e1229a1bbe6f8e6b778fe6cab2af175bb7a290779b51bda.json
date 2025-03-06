@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE \n            FROM msq_queue USING devices\n            WHERE devices.id = msq_queue.receiver\n              AND devices.owner =\n                    (SELECT id\n                     FROM accounts\n                     WHERE aci = $1 \n                        OR pni = $1)\n              AND devices.device_id = $2 RETURNING msq_queue.msg\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "msg",
+        "type_info": "Bytea"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "1579f084d06a48823e1229a1bbe6f8e6b778fe6cab2af175bb7a290779b51bda"
+}

@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO pni_signed_pre_key_store (owner, key_id, public_key, signature)\n        SELECT id, \n               $3, \n               $4, \n               $5\n        FROM devices\n        WHERE owner =\n                (SELECT id\n                 FROM accounts\n                 WHERE aci = $1 \n                    OR pni = $1) \n          AND device_id = $2 ON CONFLICT (key_id, \n                                            owner) DO\n\n            UPDATE \n            SET key_id = $3, \n                public_key = $4, \n                signature = $5;\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Bytea",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9ff13ed8111d08e837f0205eb73089d8d256ce9bd95af821bb0ee3bdabcd3078"
+}

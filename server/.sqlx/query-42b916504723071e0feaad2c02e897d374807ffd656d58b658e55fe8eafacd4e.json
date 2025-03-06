@@ -1,0 +1,89 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT aci_signed_pre_key_store.key_id AS aspk_id,\n                   aci_signed_pre_key_store.public_key AS aspk,\n                   aci_signed_pre_key_store.signature AS aspk_sig,\n                   pni_signed_pre_key_store.key_id AS pspk_id,\n                   pni_signed_pre_key_store.public_key AS pspk,\n                   pni_signed_pre_key_store.signature AS pspk_sig,\n                   aci_pq_last_resort_pre_key_store.key_id AS apqlrpk_id,\n                   aci_pq_last_resort_pre_key_store.public_key AS apqlrpk,\n                   aci_pq_last_resort_pre_key_store.signature AS apqlrpk_sig,\n                   pni_pq_last_resort_pre_key_store.key_id AS ppqlrpk_id,\n                   pni_pq_last_resort_pre_key_store.public_key AS ppqlrpk,\n                   pni_pq_last_resort_pre_key_store.signature AS ppqlrpk_sig\n            FROM device_keys\n            INNER JOIN aci_signed_pre_key_store ON aci_signed_pre_key_store.id = device_keys.aci_signed_pre_key\n            INNER JOIN pni_signed_pre_key_store ON pni_signed_pre_key_store.id = device_keys.pni_signed_pre_key\n            INNER JOIN aci_pq_last_resort_pre_key_store ON aci_pq_last_resort_pre_key_store.id = device_keys.aci_pq_last_resort_pre_key\n            INNER JOIN pni_pq_last_resort_pre_key_store ON pni_pq_last_resort_pre_key_store.id = device_keys.pni_pq_last_resort_pre_key\n            INNER JOIN devices ON devices.id = device_keys.owner\n            WHERE devices.owner = \n                    (SELECT id\n                    FROM accounts\n                    WHERE aci = $1 \n                       OR pni = $1)\n              AND devices.device_id = $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "aspk_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "aspk",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 2,
+        "name": "aspk_sig",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 3,
+        "name": "pspk_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "pspk",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 5,
+        "name": "pspk_sig",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 6,
+        "name": "apqlrpk_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "apqlrpk",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 8,
+        "name": "apqlrpk_sig",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 9,
+        "name": "ppqlrpk_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "ppqlrpk",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 11,
+        "name": "ppqlrpk_sig",
+        "type_info": "Bytea"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "42b916504723071e0feaad2c02e897d374807ffd656d58b658e55fe8eafacd4e"
+}

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE \n            FROM one_time_ec_pre_key_store\n            WHERE owner = \n                (SELECT id\n                 FROM devices\n                 WHERE owner = \n                         (SELECT id\n                         FROM accounts\n                         WHERE aci = $1 \n                            OR pni = $1)\n                   AND devices.device_id = $2)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3fc7378a8e7104cbb909a2892cc8b98975f2f4d75d3190df3d434f95e8a232bd"
+}

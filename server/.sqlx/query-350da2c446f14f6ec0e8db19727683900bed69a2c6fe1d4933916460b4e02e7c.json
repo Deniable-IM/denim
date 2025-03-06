@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT msq_queue.msg\n            FROM msq_queue\n            INNER JOIN devices on devices.id = msq_queue.receiver\n            WHERE devices.owner =\n                    (SELECT id\n                     FROM accounts\n                     WHERE aci = $1 \n                        OR pni = $1)\n              AND devices.device_id = $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "msg",
+        "type_info": "Bytea"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "350da2c446f14f6ec0e8db19727683900bed69a2c6fe1d4933916460b4e02e7c"
+}

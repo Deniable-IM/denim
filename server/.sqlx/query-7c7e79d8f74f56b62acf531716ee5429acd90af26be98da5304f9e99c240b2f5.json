@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO\n                used_device_link_tokens (device_link_token)\n            VALUES\n                ($1)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7c7e79d8f74f56b62acf531716ee5429acd90af26be98da5304f9e99c240b2f5"
+}
