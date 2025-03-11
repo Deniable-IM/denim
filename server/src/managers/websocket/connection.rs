@@ -631,8 +631,8 @@ pub(crate) mod test {
         let alice_address = alice.protocol_address();
         let bob_address = bob.protocol_address();
 
-        state.websocket_manager.insert(alice, alice_mreceiver).await;
-        state.websocket_manager.insert(bob, bob_mreceiver).await;
+        state.websocket_manager.listen(alice, alice_mreceiver).await;
+        state.websocket_manager.listen(bob, bob_mreceiver).await;
         let ws_alice = state.websocket_manager.get(&alice_address).await.unwrap();
         let ws_bob = state.websocket_manager.get(&bob_address).await.unwrap();
         state
@@ -744,7 +744,7 @@ pub(crate) mod test {
             create_connection("127.0.0.1:4043", state.clone()).await;
         let address = ws.protocol_address();
         let mut mgr = state.websocket_manager.clone();
-        mgr.insert(ws, mreceiver).await;
+        mgr.listen(ws, mreceiver).await;
         let listener = mgr.get(&address).await.unwrap();
         let mut env = make_envelope();
 
