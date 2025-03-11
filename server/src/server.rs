@@ -7,7 +7,8 @@ use crate::{
     managers::{
         message_persister::MessagePersister,
         state::SignalServerState,
-        websocket::connection::{SignalWebSocket, UserIdentity, WebSocketConnection},
+        websocket::connection::{UserIdentity, WebSocketConnection},
+        websocket::signal_websocket::SignalWebSocket,
     },
     message_cache::MessageAvailabilityListener,
     postgres::PostgresDatabase,

@@ -5,7 +5,6 @@ use crate::{
     message_cache::MessageAvailabilityListener,
     server::{handle_keepalive, handle_put_messages},
 };
-use axum::extract::ws::WebSocket;
 use axum::Error;
 use axum::{
     extract::ws::{CloseFrame, Message},
@@ -21,18 +20,10 @@ use common::websocket::net_helper::{
     PathExtractor,
 };
 use common::websocket::wsstream::WSStream;
-use futures_util::{stream::SplitSink, Sink, SinkExt, Stream};
+use futures_util::{stream::SplitSink, SinkExt};
 use libsignal_core::{ProtocolAddress, ServiceId, ServiceIdKind};
 use prost::Message as PMessage;
-use std::{
-    collections::HashMap,
-    fmt::Debug,
-    net::SocketAddr,
-    pin::Pin,
-    sync::Arc,
-    task::{Context, Poll},
-    time::SystemTimeError,
-};
+use std::{collections::HashMap, fmt::Debug, net::SocketAddr, sync::Arc, time::SystemTimeError};
 use tokio::sync::Mutex;
 
 #[derive(Debug)]
@@ -225,7 +216,7 @@ impl<W: WSStream<Message, Error> + Debug + Send + 'static, DB: SignalDatabase + 
 
         if request_msq.path().starts_with("/v1/keepalive") {
             let user = match &self.identity {
-                UserIdentity::ProtocolAddress(pa) => {
+                UserIdentity::ProtocolAddress(_) => {
                     todo!()
                 }
                 UserIdentity::AuthenticatedDevice(auth_device) => auth_device,
@@ -363,55 +354,6 @@ where
     }
 }
 
-#[derive(Debug)]
-pub struct SignalWebSocket(WebSocket);
-impl SignalWebSocket {
-    pub fn new(w: WebSocket) -> Self {
-        Self(w)
-    }
-}
-
-impl Stream for SignalWebSocket {
-    type Item = Result<Message, Error>;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Stream::poll_next(Pin::new(&mut self.0), cx)
-    }
-}
-
-impl Sink<Message> for SignalWebSocket {
-    type Error = Error;
-
-    fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Sink::poll_ready(Pin::new(&mut self.0), cx)
-    }
-
-    fn start_send(mut self: Pin<&mut Self>, item: Message) -> Result<(), Self::Error> {
-        Sink::start_send(Pin::new(&mut self.0), item)
-    }
-
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Sink::poll_flush(Pin::new(&mut self.0), cx)
-    }
-
-    fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Sink::poll_close(Pin::new(&mut self.0), cx)
-    }
-}
-
-#[async_trait::async_trait]
-impl WSStream<Message, Error> for SignalWebSocket {
-    async fn recv(&mut self) -> Option<Result<Message, Error>> {
-        self.recv().await
-    }
-    async fn send(&mut self, msg: Message) -> Result<(), Error> {
-        SinkExt::send(self, msg).await
-    }
-    async fn close(self) -> Result<(), Error> {
-        self.close().await
-    }
-}
-
 pub type ClientConnection<T, U> = Arc<Mutex<WebSocketConnection<T, U>>>;
 pub type ConnectionMap<T, U> = Arc<Mutex<HashMap<ProtocolAddress, ClientConnection<T, U>>>>;
 
@@ -419,7 +361,6 @@ pub type ConnectionMap<T, U> = Arc<Mutex<HashMap<ProtocolAddress, ClientConnecti
 pub(crate) mod test {
     use super::{UserIdentity, WebSocketConnection};
     use crate::{
-        account::Device,
         database::SignalDatabase,
         managers::state::SignalServerState,
         postgres::PostgresDatabase,
@@ -431,10 +372,9 @@ pub(crate) mod test {
     };
     use axum::{extract::ws::Message, http::StatusCode, Error};
     use base64::prelude::{Engine as _, BASE64_STANDARD};
-    use common::signalservice::{Envelope, WebSocketMessage, WebSocketRequestMessage};
+    use common::signalservice::{Envelope, WebSocketMessage};
     use common::websocket::net_helper::{create_request, create_response};
     use futures_util::{stream::SplitStream, StreamExt};
-    use hmac::digest::consts::False;
     use libsignal_core::Aci;
     use prost::{bytes::Bytes, Message as PMessage};
 
@@ -482,14 +422,14 @@ pub(crate) mod test {
         let (mut client, sender, mut receiver, mut mreceiver) =
             create_connection("127.0.0.1:4042", state).await;
 
-        sender.send(Ok(Message::Text("hello".to_string()))).await;
+        let _ = sender.send(Ok(Message::Text("hello".to_string()))).await;
 
         match mreceiver.next().await {
             Some(Ok(Message::Text(x))) => assert!(x == "hello", "message was not hello"),
             _ => panic!("Unexpected error when receiving msg"),
         }
 
-        client.send(Message::Text("hello back".to_string())).await;
+        let _ = client.send(Message::Text("hello back".to_string())).await;
 
         if receiver.is_empty() {
             panic!("receiver was empty when it was expected not to be")
@@ -516,7 +456,7 @@ pub(crate) mod test {
         let state = SignalServerState::<MockDB, MockSocket>::new();
         let (mut client, _, mut receiver, _) = create_connection("127.0.0.1:4042", state).await;
         assert!(client.is_active());
-        client.close_reason(666, "test").await;
+        let _ = client.close_reason(666, "test").await;
         client.close().await;
         assert!(!client.is_active());
 
@@ -533,11 +473,12 @@ pub(crate) mod test {
     #[tokio::test]
     async fn test_send_message() {
         let state = SignalServerState::<MockDB, MockSocket>::new();
-        let (mut client, sender, mut receiver, mreceiver) =
+        let (mut client, _sender, mut receiver, _mreceiver) =
             create_connection("127.0.0.1:4042", state).await;
         let mut env = make_envelope();
         env.server_guid = Some("abs".to_string());
-        client.send_message(env.clone()).await;
+
+        let _ = client.send_message(env.clone()).await;
 
         assert!(!receiver.is_empty());
 
@@ -562,7 +503,7 @@ pub(crate) mod test {
     #[tokio::test]
     async fn test_on_receive_request() {
         let state = SignalServerState::<MockDB, MockSocket>::new();
-        let (mut client, sender, receiver, mreceiver) =
+        let (mut client, _sender, _receiver, _mreceiver) =
             create_connection("127.0.0.1:4042", state).await;
         let msg = r#"
         {
@@ -598,7 +539,7 @@ pub(crate) mod test {
     #[tokio::test]
     async fn test_on_receive_response() {
         let state = SignalServerState::<MockDB, MockSocket>::new();
-        let (mut client, sender, receiver, mreceiver) =
+        let (mut client, _sender, _receiver, _mreceiver) =
             create_connection("127.0.0.1:4042", state).await;
         client
             .on_receive(create_response(1, StatusCode::OK, vec![], None).unwrap())
@@ -611,11 +552,11 @@ pub(crate) mod test {
             SignalServerState::<PostgresDatabase, MockSocket>::connect("DATABASE_URL_TEST").await;
         let (alice, alice_sender, mut alice_receiver, alice_mreceiver) =
             create_connection("127.0.0.1:4042", state.clone()).await;
-        let (bob, bob_sender, mut bob_receiver, bob_mreceiver) =
+        let (bob, _bob_sender, mut bob_receiver, bob_mreceiver) =
             create_connection("127.0.0.1:4042", state.clone()).await;
 
         match &alice.identity {
-            UserIdentity::ProtocolAddress(protocol_address) => todo!(),
+            UserIdentity::ProtocolAddress(_) => todo!(),
             UserIdentity::AuthenticatedDevice(authenticated_device) => state
                 .db
                 .add_account(authenticated_device.account())
@@ -680,7 +621,7 @@ pub(crate) mod test {
             .await
             .unwrap();
 
-        sleep(Duration::from_millis(100));
+        sleep(Duration::from_millis(100)).await;
 
         assert!(ws_bob.lock().await.is_active());
         let alice_response =
@@ -740,7 +681,7 @@ pub(crate) mod test {
     #[tokio::test]
     async fn test_handle_new_messages_available() {
         let mut state = SignalServerState::<MockDB, MockSocket>::new();
-        let (ws, sender, mut receiver, mreceiver) =
+        let (ws, _sender, mut receiver, mreceiver) =
             create_connection("127.0.0.1:4043", state.clone()).await;
         let address = ws.protocol_address();
         let mut mgr = state.websocket_manager.clone();
@@ -752,7 +693,8 @@ pub(crate) mod test {
             .message_manager
             .add_message_availability_listener(&address, listener)
             .await;
-        state.message_manager.insert(&address, &mut env).await;
+
+        let _ = state.message_manager.insert(&address, &mut env).await;
 
         let msg = match receiver.recv().await {
             Some(Message::Binary(x)) => {
@@ -792,16 +734,17 @@ pub(crate) mod test {
     #[tokio::test]
     async fn test_keepalive_for_present_device() {
         let mut state = SignalServerState::<MockDB, MockSocket>::new();
-        let (mut client, sender, mut receiver, mut mreceiver) =
+        let (client, _, mut receiver, _) =
             create_connection("127.0.0.1:4042", state.clone()).await;
 
         let addr = client.protocol_address();
         let websocket = Arc::new(tokio::sync::Mutex::new(client));
 
-        state
+        let _ = state
             .client_presence_manager
             .set_present(&addr, websocket.clone())
             .await;
+
         websocket
             .lock()
             .await
@@ -821,11 +764,11 @@ pub(crate) mod test {
 
     #[tokio::test]
     async fn test_keepalive_for_unpresent_device() {
-        let mut state = SignalServerState::<MockDB, MockSocket>::new();
-        let (mut client, sender, mut receiver, mut mreceiver) =
+        let state = SignalServerState::<MockDB, MockSocket>::new();
+        let (mut client, _, mut receiver, _) =
             create_connection("127.0.0.1:4042", state.clone()).await;
 
-        state
+        let _ = state
             .clone()
             .client_presence_manager
             .disconnect_presence_in_test(&client.protocol_address())
