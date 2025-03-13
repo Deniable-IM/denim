@@ -1,6 +1,5 @@
 use crate::account::{Account, AuthenticatedDevice, Device};
-use common::web_api::AccountAttributes;
-use libsignal_core::{Aci, DeviceId, Pni, ProtocolAddress, ServiceId};
+use libsignal_core::{Aci, DeviceId, Pni, ProtocolAddress};
 use libsignal_protocol::{IdentityKey, KeyPair};
 use rand::{
     rngs::{OsRng, StdRng},
@@ -55,10 +54,6 @@ pub fn new_device() -> Device {
 pub fn new_protocol_address() -> ProtocolAddress {
     let name = new_aci();
     ProtocolAddress::new(name.service_id_string(), new_device_id())
-}
-
-pub fn new_service_id() -> ServiceId {
-    new_aci().into()
 }
 
 pub fn new_aci() -> Aci {

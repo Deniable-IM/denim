@@ -2,7 +2,7 @@ use crate::{
     signalservice::{
         web_socket_message, WebSocketMessage, WebSocketRequestMessage, WebSocketResponseMessage,
     },
-    web_api::SignalMessages,
+    web_api::DenimMessages,
 };
 use axum::http::{StatusCode, Uri};
 use rand::{rngs::OsRng, Rng as _};
@@ -96,11 +96,11 @@ pub fn create_request(
     }
 }
 
-pub fn unpack_messages(body: Option<Vec<u8>>) -> Result<SignalMessages, String> {
+pub fn unpack_messages(body: Option<Vec<u8>>) -> Result<DenimMessages, String> {
     let json = String::from_utf8(body.ok_or_else(|| "Body was none".to_string())?)
         .map_err(|_| "Failed to convert req body to string".to_string())?;
 
-    serde_json::from_str(&json).map_err(|_| "Failed to convert json to SignalMessages".to_string())
+    serde_json::from_str(&json).map_err(|_| "Failed to convert json to DenimMessages".to_string())
 }
 
 pub fn generate_req_id() -> u64 {
@@ -116,7 +116,7 @@ pub fn current_millis() -> Result<u128, SystemTimeError> {
 #[cfg(test)]
 mod test {
     use super::{create_request, create_response, unpack_messages, PathExtractor};
-    use crate::signalservice::web_socket_message;
+    use crate::{signalservice::web_socket_message, web_api::RegularPayload};
     use axum::http::{StatusCode, Uri};
     use std::str::FromStr;
 
@@ -173,10 +173,16 @@ mod test {
         {
             "messages":[
                 {
-                    "type": 1,
-                    "destinationDeviceId": 3,
-                    "destinationRegistrationId": 22,
-                    "content": "aGVsbG8="
+                    "regularPayload": {
+                        "signalMessage": {
+                            "type": 1,
+                            "destinationDeviceId": 3,
+                            "destinationRegistrationId": 22,
+                            "content": "aGVsbG8="
+                        }
+                    },
+                    "chunks": [],
+                    "ballast": 0
                 }
             ],
             "online": false,
@@ -192,9 +198,13 @@ mod test {
         assert!(!msg.online);
         assert!(msg.urgent);
         assert!(msg.timestamp == 1730217386);
-        assert!(msg.messages[0].content == "aGVsbG8=");
-        assert!(msg.messages[0].r#type == 1);
-        assert!(msg.messages[0].destination_device_id == 3);
-        assert!(msg.messages[0].destination_registration_id == 22);
+        let RegularPayload::SignalMessage(signal_msg) = msg.messages[0].regular_payload.clone()
+        else {
+            panic!()
+        };
+        assert!(signal_msg.content == "aGVsbG8=");
+        assert!(signal_msg.r#type == 1);
+        assert!(signal_msg.destination_device_id == 3);
+        assert!(signal_msg.destination_registration_id == 22);
     }
 }

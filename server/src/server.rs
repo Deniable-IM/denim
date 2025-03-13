@@ -37,23 +37,20 @@ use axum::{
 };
 use axum_extra::{headers, TypedHeader};
 use axum_server::tls_rustls::RustlsConfig;
-use base64::prelude::{Engine as _, BASE64_STANDARD};
 use base64::prelude::{Engine as _, BASE64_URL_SAFE, BASE64_URL_SAFE_NO_PAD};
 use common::web_api::{
-    authorization::BasicAuthorizationHeader, DeviceCapabilityType, DevicePreKeyBundle,
-    LinkDeviceRequest, PreKeyCount, PreKeyResponse, RegistrationRequest, RegistrationResponse,
-    SetKeyRequest, SignalMessages,
+    authorization::BasicAuthorizationHeader, DenimMessages, DeviceCapabilityType,
+    DevicePreKeyBundle, LinkDeviceRequest, PreKeyCount, PreKeyResponse, RegistrationRequest,
+    RegistrationResponse, RegularPayload, SetKeyRequest, SignalMessage,
 };
 use common::websocket::wsstream::WSStream;
 use futures_util::StreamExt;
 use headers::authorization::Basic;
 use headers::Authorization;
 use hmac::{Hmac, Mac};
-use libsignal_core::{DeviceId, ProtocolAddress, ServiceId, ServiceIdKind};
-use serde_json::json;
+use libsignal_core::{ProtocolAddress, ServiceId, ServiceIdKind};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::io::BufRead;
 use std::{
     env,
     fmt::Debug,
@@ -61,7 +58,6 @@ use std::{
     str::FromStr,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tower::ServiceBuilder;
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::CorsLayer;
 
@@ -69,7 +65,7 @@ pub async fn handle_put_messages<T: SignalDatabase, U: WSStream<Message, axum::E
     state: &SignalServerState<T, U>,
     authenticated_device: &AuthenticatedDevice,
     destination_identifier: &ServiceId,
-    payload: SignalMessages,
+    payload: DenimMessages,
 ) -> Result<SendMessageResponse, ApiError> {
     if *destination_identifier == authenticated_device.account().pni() {
         return Err(ApiError {
@@ -97,8 +93,16 @@ pub async fn handle_put_messages<T: SignalDatabase, U: WSStream<Message, axum::E
         Vec::new()
     };
 
-    let message_device_ids: Vec<u32> = payload
+    let regular_messages: Vec<SignalMessage> = payload
         .messages
+        .into_iter()
+        .filter_map(|msg| match msg.regular_payload {
+            RegularPayload::SignalMessage(signal_msg) => Some(signal_msg),
+            _ => None,
+        })
+        .collect();
+
+    let message_device_ids: Vec<u32> = regular_messages
         .iter()
         .map(|message| message.destination_device_id)
         .collect();
@@ -114,7 +118,7 @@ pub async fn handle_put_messages<T: SignalDatabase, U: WSStream<Message, axum::E
 
     DestinationDeviceValidator::validate_registration_id_from_messages(
         &destination,
-        &payload.messages,
+        &regular_messages,
         destination_identifier.kind() == ServiceIdKind::Pni,
     )
     .map_err(|err| ApiError {
@@ -122,7 +126,7 @@ pub async fn handle_put_messages<T: SignalDatabase, U: WSStream<Message, axum::E
         body: serde_json::to_string(&err).expect("Can serialize device ids"),
     })?;
 
-    for message in payload.messages {
+    for message in regular_messages {
         let mut envelope = message.to_envelope(
             destination_identifier,
             authenticated_device.account(),
@@ -143,6 +147,8 @@ pub async fn handle_put_messages<T: SignalDatabase, U: WSStream<Message, axum::E
                 body: "Could not insert message".to_owned(),
             })?;
     }
+
+    //EXTRACT DENIABLE CHUNKS HERE AND PROCESS
 
     let needs_sync = !is_sync_message && authenticated_device.account().devices().len() > 1;
     Ok(SendMessageResponse { needs_sync })
@@ -214,7 +220,7 @@ async fn handle_post_registration<T: SignalDatabase, U: WSStream<Message, axum::
     let aci = account.aci();
     let address = ProtocolAddress::new(aci.service_id_string(), device.device_id());
 
-    // Store key bunde for new account
+    // Store key bundle for new account
     state
         .account_manager
         .store_key_bundle(&device_pre_key_bundle, &address)
@@ -494,28 +500,6 @@ async fn redirect_http_to_https(addr: SocketAddr, http: u16, https: u16) -> Resu
     Ok(())
 }
 
-/// A protocol address is represented in string form as
-/// <user_id>.<device_id>. This function takes this string and
-/// produces a [ProtocolAddress].
-fn parse_protocol_address(string: String) -> Result<ProtocolAddress, ApiError> {
-    let (user_id, dev_id) = string
-        .find(".")
-        .ok_or(ApiError {
-            status_code: StatusCode::BAD_REQUEST,
-            body: "Could not parse address. Address did not contain '.'".to_owned(),
-        })
-        .map(|pos| string.split_at(pos))?;
-    let device_id: DeviceId = dev_id[1..]
-        .parse::<u32>()
-        .map_err(|e| ApiError {
-            status_code: StatusCode::BAD_REQUEST,
-            body: format!("Could not parse device_id: {}.", e),
-        })?
-        .into();
-
-    Ok(ProtocolAddress::new(user_id.to_owned(), device_id))
-}
-
 fn parse_service_id(string: String) -> Result<ServiceId, ApiError> {
     ServiceId::parse_from_service_id_string(&string).ok_or_else(|| ApiError {
         status_code: StatusCode::BAD_REQUEST,
@@ -527,7 +511,7 @@ fn parse_service_id(string: String) -> Result<ServiceId, ApiError> {
 #[debug_handler]
 async fn get_identifier_endpoint(
     State(state): State<SignalServerState<PostgresDatabase, SignalWebSocket>>,
-    authenticated_device: AuthenticatedDevice,
+    _authenticated_device: AuthenticatedDevice,
     Path(phone_number): Path<String>,
 ) -> Result<String, ApiError> {
     Ok(state
@@ -548,7 +532,7 @@ async fn put_messages_endpoint(
     State(state): State<SignalServerState<PostgresDatabase, SignalWebSocket>>,
     authenticated_device: AuthenticatedDevice,
     Path(destination_identifier): Path<String>,
-    Json(payload): Json<SignalMessages>,
+    Json(payload): Json<DenimMessages>,
 ) -> Result<SendMessageResponse, ApiError> {
     let destination_identifier = parse_service_id(destination_identifier)?;
     handle_put_messages(

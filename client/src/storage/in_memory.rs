@@ -24,6 +24,7 @@ pub struct InMemory {
     sender_key_store: InMemSenderKeyStore,
 }
 
+#[allow(dead_code)]
 impl InMemory {
     pub fn new(
         password: String,
@@ -52,39 +53,39 @@ impl ClientDB for InMemory {
 
     async fn insert_account_information(
         &self,
-        aci: Aci,
-        pni: Pni,
-        password: String,
+        _aci: Aci,
+        _pni: Pni,
+        _password: String,
     ) -> Result<(), Self::Error> {
         todo!()
     }
     async fn insert_account_key_information(
         &self,
-        key_pair: IdentityKeyPair,
-        registration_id: u32,
+        _key_pair: IdentityKeyPair,
+        _registration_id: u32,
     ) -> Result<(), Self::Error> {
         todo!()
     }
     async fn get_key_ids(&self) -> Result<(u32, u32, u32), Self::Error> {
         todo!()
     }
-    async fn store_contact(&self, contact: &Contact) -> Result<(), Self::Error> {
+    async fn store_contact(&self, _contact: &Contact) -> Result<(), Self::Error> {
         todo!()
     }
     async fn load_contacts(&self) -> Result<Vec<Contact>, Self::Error> {
         todo!()
     }
-    async fn remove_contact(&self, service_id: &ServiceId) -> Result<(), Self::Error> {
+    async fn remove_contact(&self, _service_id: &ServiceId) -> Result<(), Self::Error> {
         todo!()
     }
     async fn insert_service_id_for_nickname(
         &self,
-        nickname: &str,
-        service_id: &ServiceId,
+        _nickname: &str,
+        _service_id: &ServiceId,
     ) -> Result<(), Self::Error> {
         todo!()
     }
-    async fn get_service_id_by_nickname(&self, nickname: &str) -> Result<ServiceId, Self::Error> {
+    async fn get_service_id_by_nickname(&self, _nickname: &str) -> Result<ServiceId, Self::Error> {
         todo!()
     }
     async fn get_identity_key_pair(&self) -> Result<IdentityKeyPair, Self::Error> {
@@ -106,10 +107,10 @@ impl ClientDB for InMemory {
         &self,
         address: &ProtocolAddress,
         identity: &IdentityKey,
-        _direction: Direction,
+        direction: Direction,
     ) -> Result<bool, Self::Error> {
         self.identity_key_store
-            .is_trusted_identity(address, identity, _direction)
+            .is_trusted_identity(address, identity, direction)
             .await
     }
     async fn get_identity(

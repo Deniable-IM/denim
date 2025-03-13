@@ -122,7 +122,7 @@ mod test {
         let charlie = new_service_id();
         cm.add_contact(&charlie).unwrap();
         let device_id: DeviceId = 1.into();
-        cm.update_contact(&charlie, vec![device_id]);
+        cm.update_contact(&charlie, vec![device_id]).unwrap();
 
         let c = cm.get_contact(&charlie).unwrap();
         assert!(c.service_id == charlie);

@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 use crate::contact_manager::Contact;
 
+#[allow(dead_code)]
 #[async_trait(?Send)]
 pub trait ClientDB {
     type Error: std::error::Error + 'static;
@@ -46,7 +47,7 @@ pub trait ClientDB {
         &self,
         address: &ProtocolAddress,
         identity: &IdentityKey,
-        _direction: Direction,
+        direction: Direction,
     ) -> Result<bool, Self::Error>;
     async fn get_identity(
         &self,
@@ -146,10 +147,10 @@ impl<T: ClientDB> IdentityKeyStore for DeviceIdentityKeyStore<T> {
         &self,
         address: &ProtocolAddress,
         identity: &IdentityKey,
-        _direction: Direction,
+        direction: Direction,
     ) -> Result<bool, SignalProtocolError> {
         self.db
-            .is_trusted_identity(address, identity, _direction)
+            .is_trusted_identity(address, identity, direction)
             .await
             .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))
     }

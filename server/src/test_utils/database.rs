@@ -7,6 +7,7 @@ pub async fn database_connect() -> PostgresDatabase {
     PostgresDatabase::connect("DATABASE_URL_TEST".to_string()).await
 }
 
+#[allow(dead_code)]
 pub async fn get_ec_pni_signed_pre_key(
     db: &PostgresDatabase,
     key_id: u32,
@@ -186,6 +187,7 @@ pub async fn get_pq_pni_signed_pre_key(
     .map_err(|err| err.into())
 }
 
+#[allow(dead_code)]
 pub async fn get_pq_last_resort_pre_key(
     db: &PostgresDatabase,
     key_id: u32,

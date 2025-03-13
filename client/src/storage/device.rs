@@ -1,9 +1,6 @@
 use std::collections::HashSet;
 
-use super::{
-    database::ClientDB,
-    generic::{SignalStore, Storage},
-};
+use super::database::ClientDB;
 use crate::contact_manager::Contact;
 use axum::async_trait;
 use base64::{prelude::BASE64_STANDARD, Engine as _};
@@ -687,7 +684,7 @@ impl ClientDB for Device {
     async fn set_password(&mut self, new_password: String) -> Result<(), Self::Error> {
         sqlx::query!(
             r#"
-            UPDATE identity
+            UPDATE Identity
             SET password = ?
             "#,
             new_password
@@ -703,7 +700,7 @@ impl ClientDB for Device {
             SELECT
                 password
             FROM
-                identity
+                Identity
             "#
         )
         .fetch_one(&self.pool)
@@ -716,7 +713,7 @@ impl ClientDB for Device {
 
         sqlx::query!(
             r#"
-            UPDATE identity
+            UPDATE Identity
             SET aci = ?
             "#,
             new_aci
@@ -732,7 +729,7 @@ impl ClientDB for Device {
             SELECT
                 aci
             FROM
-                identity
+                Identity
             "#
         )
         .fetch_one(&self.pool)
@@ -752,7 +749,7 @@ impl ClientDB for Device {
 
         sqlx::query!(
             r#"
-            UPDATE identity
+            UPDATE Identity
             SET pni = ?
             "#,
             new_pni
@@ -768,7 +765,7 @@ impl ClientDB for Device {
             SELECT
                 pni
             FROM
-                identity
+                Identity
             "#
         )
         .fetch_one(&self.pool)
@@ -782,53 +779,6 @@ impl ClientDB for Device {
             )?),
             Err(err) => Err(SignalProtocolError::InvalidArgument(format!("{}", err))),
         }
-    }
-}
-
-#[async_trait(?Send)]
-impl SignalStore for Storage<Device> {
-    type Error = SignalProtocolError;
-
-    async fn set_password(&mut self, new_password: String) -> Result<(), Self::Error> {
-        self.device
-            .set_password(new_password)
-            .await
-            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))
-    }
-
-    async fn get_password(&self) -> Result<String, Self::Error> {
-        self.device
-            .get_password()
-            .await
-            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))
-    }
-
-    async fn set_aci(&mut self, new_aci: Aci) -> Result<(), Self::Error> {
-        self.device
-            .set_aci(new_aci)
-            .await
-            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))
-    }
-
-    async fn get_aci(&self) -> Result<Aci, Self::Error> {
-        self.device
-            .get_aci()
-            .await
-            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))
-    }
-
-    async fn set_pni(&mut self, new_pni: Pni) -> Result<(), Self::Error> {
-        self.device
-            .set_pni(new_pni)
-            .await
-            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))
-    }
-
-    async fn get_pni(&self) -> Result<Pni, Self::Error> {
-        self.device
-            .get_pni()
-            .await
-            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))
     }
 }
 
