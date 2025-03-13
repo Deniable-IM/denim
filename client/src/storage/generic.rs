@@ -3,7 +3,7 @@ use super::database::{
     DeviceSenderKeyStore, DeviceSessionStore, DeviceSignedPreKeyStore,
 };
 use axum::async_trait;
-use libsignal_core::{Aci, Pni, ProtocolAddress};
+use libsignal_core::ProtocolAddress;
 use libsignal_protocol::{
     Direction, IdentityKey, IdentityKeyPair, IdentityKeyStore, KyberPreKeyId, KyberPreKeyRecord,
     KyberPreKeyStore, PreKeyId, PreKeyRecord, PreKeyStore, ProtocolStore as SignalProtocolStore,
@@ -24,18 +24,6 @@ impl<T: ClientDB> Storage<T> {
             protocol_store,
         }
     }
-}
-
-#[async_trait(?Send)]
-pub trait SignalStore {
-    type Error;
-
-    async fn set_password(&mut self, new_password: String) -> Result<(), Self::Error>;
-    async fn get_password(&self) -> Result<String, Self::Error>;
-    async fn set_aci(&mut self, new_aci: Aci) -> Result<(), Self::Error>;
-    async fn get_aci(&self) -> Result<Aci, Self::Error>;
-    async fn set_pni(&mut self, new_pni: Pni) -> Result<(), Self::Error>;
-    async fn get_pni(&self) -> Result<Pni, Self::Error>;
 }
 
 pub struct ProtocolStore<T: ClientDB> {

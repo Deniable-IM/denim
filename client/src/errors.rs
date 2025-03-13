@@ -27,7 +27,6 @@ pub enum SignalClientError {
     WebSocketError(String),
     #[from]
     DatabaseError(DatabaseError),
-    DotenvError(String),
     #[from]
     ReceiveMessageError(ReceiveMessageError),
     #[from]
@@ -58,7 +57,6 @@ pub enum ContactManagerError {
 impl Error for ContactManagerError {}
 
 pub enum RegistrationError {
-    PhoneNumberTaken,
     NoResponse,
     BadResponse(String),
 }
@@ -72,7 +70,6 @@ impl fmt::Debug for RegistrationError {
 impl fmt::Display for RegistrationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let message = match self {
-            Self::PhoneNumberTaken => "Phone number was already taken.".to_owned(),
             Self::NoResponse => {
                 "The server did not respond to the registration request.".to_owned()
             }
@@ -134,6 +131,7 @@ impl fmt::Display for SendMessageError {
 
 impl Error for SendMessageError {}
 
+#[allow(dead_code)]
 #[derive(Debug, Display, Error)]
 pub enum ReceiveMessageError {
     Base64DecodeError(base64::DecodeError),

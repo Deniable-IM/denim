@@ -12,7 +12,7 @@ use common::web_api::{
     authorization::BasicAuthorizationHeader, PreKeyResponse, RegistrationRequest,
     RegistrationResponse,
 };
-use common::web_api::{SetKeyRequest, SignalMessages};
+use common::web_api::{DenimMessages, SetKeyRequest};
 use common::websocket::net_helper::{create_request, create_response};
 use flate2::read::GzDecoder;
 use http_client::h1::H1Client;
@@ -32,12 +32,12 @@ const GET_SERVICE_ID_URI: &str = "v1/identifier";
 const MSG_URI: &str = "/v1/messages";
 const KEY_BUNDLE_URI: &str = "/v2/keys";
 
-#[allow(unused)]
+#[allow(dead_code)]
 pub struct VerifiedSession {
     session_id: String,
 }
 
-#[allow(unused)]
+#[allow(dead_code)]
 impl VerifiedSession {
     pub fn session_id(&self) -> &String {
         &self.session_id
@@ -88,7 +88,7 @@ pub trait SignalServerAPI {
     /// Send a message to another user.
     async fn send_msg(
         &mut self,
-        messages: &SignalMessages,
+        messages: &DenimMessages,
         service_id: &ServiceId,
     ) -> Result<(), SignalClientError>;
 
@@ -112,6 +112,7 @@ pub struct SignalServer {
     message_queue: PersistentReceiver<WebSocketMessage>,
 }
 
+#[allow(dead_code)]
 enum ReqType {
     Get,
     Post(serde_json::Value),
@@ -267,7 +268,7 @@ impl SignalServerAPI for SignalServer {
 
     async fn send_msg(
         &mut self,
-        messages: &SignalMessages,
+        messages: &DenimMessages,
         recipient: &ServiceId,
     ) -> Result<(), SignalClientError> {
         let payload = to_vec(&messages).unwrap();
@@ -402,6 +403,7 @@ impl SignalServer {
         }
     }
 
+    #[allow(dead_code)]
     fn create_auth_header(&mut self, aci: Aci, password: &str, device_id: DeviceId) -> () {
         self.auth_header = Some(BasicAuthorizationHeader::new(
             aci.service_id_string(),

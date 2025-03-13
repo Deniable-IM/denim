@@ -14,10 +14,14 @@ use crate::{
 };
 use axum::http::StatusCode;
 use base64::{prelude::BASE64_STANDARD, Engine as _};
+use bincode::deserialize;
 use common::{
     envelope::ProcessedEnvelope,
     signalservice::{envelope, Content, DataMessage, Envelope},
-    web_api::{AccountAttributes, RegistrationRequest, SignalMessage, SignalMessages},
+    web_api::{
+        AccountAttributes, DenimMessage, DenimMessages, RegistrationRequest, RegularPayload,
+        SignalMessage,
+    },
 };
 use core::str;
 use libsignal_core::{Aci, DeviceId, Pni, ProtocolAddress, ServiceId};
@@ -30,10 +34,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct Client<T: ClientDB, U: SignalServerAPI> {
     pub aci: Aci,
-    #[allow(unused)]
+    #[allow(dead_code)]
     pub pni: Pni,
     contact_manager: ContactManager,
     server_api: U,
+    #[allow(dead_code)]
     key_manager: KeyManager,
     pub storage: Storage<T>,
 }
@@ -292,25 +297,34 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
         .await?;
 
         // Put messages into structure ready.
-        let msgs = SignalMessages {
+        let msgs = DenimMessages {
             messages: msgs
                 .into_iter()
-                .map(|(id, msg)| SignalMessage {
-                    r#type: match msg.1 {
-                        CiphertextMessage::SignalMessage(_) => envelope::Type::Ciphertext.into(),
-                        CiphertextMessage::SenderKeyMessage(_) => {
-                            envelope::Type::KeyExchange.into()
-                        }
-                        CiphertextMessage::PreKeySignalMessage(_) => {
-                            envelope::Type::PrekeyBundle.into()
-                        }
-                        CiphertextMessage::PlaintextContent(_) => {
-                            envelope::Type::PlaintextContent.into()
-                        }
-                    },
-                    destination_device_id: id.into(),
-                    destination_registration_id: msg.0,
-                    content: BASE64_STANDARD.encode(msg.1.serialize()),
+                .map(|(id, msg)| DenimMessage {
+                    regular_payload: RegularPayload::SignalMessage(SignalMessage {
+                        r#type: match msg.1 {
+                            CiphertextMessage::SignalMessage(_) => {
+                                envelope::Type::Ciphertext.into()
+                            }
+                            CiphertextMessage::SenderKeyMessage(_) => {
+                                envelope::Type::KeyExchange.into()
+                            }
+                            CiphertextMessage::PreKeySignalMessage(_) => {
+                                envelope::Type::PrekeyBundle.into()
+                            }
+                            CiphertextMessage::PlaintextContent(_) => {
+                                envelope::Type::PlaintextContent.into()
+                            }
+                        },
+                        destination_device_id: id.into(),
+                        destination_registration_id: msg.0,
+                        content: BASE64_STANDARD.encode(msg.1.serialize()),
+                    }),
+                    chunks: Vec::new(), //ADD DENIABLE CHUNKS HERE
+                    counter: None,
+                    q: None,
+                    ballast: 0,
+                    extra_ballast: None,
                 })
                 .collect(),
             online: true,
@@ -342,10 +356,10 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
             .get_message()
             .await
             .ok_or(ReceiveMessageError::NoMessageReceived)?;
-
-        let envelope = match Envelope::decode(request.body()) {
-            Ok(e) => e,
-            Err(_) => {
+        let denim_msg: DenimMessage = deserialize(request.body()).unwrap();
+        let envelope = match denim_msg.regular_payload {
+            RegularPayload::Envelope(e) => e,
+            _ => {
                 self.server_api
                     .send_response(request, StatusCode::INTERNAL_SERVER_ERROR)
                     .await?;
@@ -365,6 +379,8 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
         .await?;
 
         let _ = self.server_api.send_response(request, StatusCode::OK).await;
+
+        //PROCESS DENIABLE MESSAGE HERE
 
         // The final message is stored within a DataMessage inside a Content.
         Ok(processed)
@@ -409,6 +425,7 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
             .is_ok()
     }
 
+    #[allow(dead_code)]
     pub async fn remove_contact(&mut self, alias: &str) -> Result<()> {
         let service_id = self
             .storage

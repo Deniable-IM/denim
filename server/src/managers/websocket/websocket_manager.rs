@@ -160,7 +160,8 @@ mod test {
     #[tokio::test]
     async fn test_insert() {
         let state = SignalServerState::<MockDB, MockSocket>::new();
-        let (ws, _, _, mreceiver) = create_connection("127.0.0.1:4043", state.clone()).await;
+        let (ws, _sender, _receiver, mreceiver) =
+            create_connection("127.0.0.1:4043", state.clone()).await;
         let address = ws.protocol_address();
         let mut mgr = state.websocket_manager.clone();
         mgr.insert(ws, mreceiver).await;
@@ -171,7 +172,8 @@ mod test {
     #[tokio::test]
     async fn test_none_msg() {
         let state = SignalServerState::<MockDB, MockSocket>::new();
-        let (ws, sender, _, mreceiver) = create_connection("127.0.0.1:4043", state.clone()).await;
+        let (ws, sender, _receiver, mreceiver) =
+            create_connection("127.0.0.1:4043", state.clone()).await;
         let address = ws.protocol_address();
         let mut mgr = state.websocket_manager.clone();
         mgr.insert(ws, mreceiver).await;
@@ -190,7 +192,8 @@ mod test {
     #[tokio::test]
     async fn test_error_msg() {
         let state = SignalServerState::<MockDB, MockSocket>::new();
-        let (ws, sender, _, mreceiver) = create_connection("127.0.0.1:4043", state.clone()).await;
+        let (ws, sender, _receiver, mreceiver) =
+            create_connection("127.0.0.1:4043", state.clone()).await;
         let address = ws.protocol_address();
         let mut mgr = state.websocket_manager.clone();
         mgr.insert(ws, mreceiver).await;
@@ -212,7 +215,8 @@ mod test {
     #[tokio::test]
     async fn test_close_msg() {
         let state = SignalServerState::<MockDB, MockSocket>::new();
-        let (ws, sender, _, mreceiver) = create_connection("127.0.0.1:4043", state.clone()).await;
+        let (ws, sender, _receiver, mreceiver) =
+            create_connection("127.0.0.1:4043", state.clone()).await;
         let address = ws.protocol_address();
         let mut mgr = state.websocket_manager.clone();
         mgr.insert(ws, mreceiver).await;
@@ -295,20 +299,26 @@ mod test {
     #[tokio::test]
     async fn test_binary_decode_ok() {
         let msg = r#"
-{
-    "messages":[
         {
-            "type": 1,
-            "destinationDeviceId": 3,
-            "destinationRegistrationId": 22,
-            "content": "aGVsbG8="
+            "messages":[
+                {
+                    "regularPayload": {
+                        "signalMessage": {
+                            "type": 1,
+                            "destinationDeviceId": 3,
+                            "destinationRegistrationId": 22,
+                            "content": "aGVsbG8="
+                        }
+                    },
+                    "chunks": [],
+                    "ballast": 0
+                }
+            ],
+            "online": false,
+            "urgent": true,
+            "timestamp": 1730217386
         }
-    ],
-    "online": false,
-    "urgent": true,
-    "timestamp": 1730217386
-}
-"#;
+        "#;
 
         let state = SignalServerState::<MockDB, MockSocket>::new();
         let (ws, sender, receiver, mreceiver) =

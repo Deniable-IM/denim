@@ -38,6 +38,7 @@ flate2 = "1.0.35"
 regex = "1.11.1"
 log = "0.4.25"
 simple_logger = "5.0.0"
+bincode = "1.3.3"
 
 [build-dependencies]
 tonic-build = "0.12.3"

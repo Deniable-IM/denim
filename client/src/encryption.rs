@@ -39,6 +39,7 @@ pub async fn encrypt(
     Ok(msgs)
 }
 
+#[allow(dead_code)]
 pub async fn decrypt<R: Rng + CryptoRng, T: ClientDB>(
     store: &mut ProtocolStore<T>,
     rng: &mut R,
@@ -93,6 +94,7 @@ pub fn pad_message(message: &[u8]) -> Vec<u8> {
     plaintext
 }
 
+#[allow(dead_code)]
 pub fn unpad_message(message: &[u8]) -> Result<Vec<u8>, PaddingError> {
     for i in 0..message.len() {
         if message[i] == 0x80 {
@@ -119,7 +121,7 @@ pub mod test {
     use rand::{rngs::OsRng, CryptoRng, Rng};
     use std::time::SystemTime;
 
-    pub fn store(reg: u32) -> ProtocolStore<InMemory> {
+    pub fn store(_reg: u32) -> ProtocolStore<InMemory> {
         ProtocolStore::new(InMemory::new(
             "password".to_string(),
             new_aci(),

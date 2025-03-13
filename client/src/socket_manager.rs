@@ -482,7 +482,7 @@ mod test {
 
     #[tokio::test]
     async fn test_connect() {
-        let (mut mgr, ms, s, r) = get_socket_mgr();
+        let (mut mgr, ms, _, _) = get_socket_mgr();
         mgr.set_stream(ms).await.unwrap();
         assert!(mgr.is_active().await);
     }
@@ -490,8 +490,8 @@ mod test {
     #[ignore = "Will not be implemented in this project"]
     #[tokio::test]
     async fn test_keepalive_is_sending() {
-        let (mut mgr, ms, s, mut r) = get_socket_mgr();
-        mgr.set_stream(ms).await;
+        let (mut mgr, ms, _, mut r) = get_socket_mgr();
+        mgr.set_stream(ms).await.unwrap();
         let res = tokio::time::timeout(Duration::from_millis(300), r.recv()).await;
         let msg = res.expect("Expected a message").expect("Expected Some");
         let msg = unwrap_binary(msg);
@@ -500,8 +500,8 @@ mod test {
 
     #[tokio::test]
     async fn test_send_success() {
-        let (mut mgr, ms, s, r) = get_socket_mgr();
-        mgr.set_stream(ms).await;
+        let (mut mgr, ms, s, _r) = get_socket_mgr();
+        mgr.set_stream(ms).await.unwrap();
         let id = mgr.next_id();
         let mut mgr_c = mgr.clone();
         let hndl = tokio::spawn(async move {
