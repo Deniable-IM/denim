@@ -50,7 +50,7 @@ use common::{
 };
 use futures_util::StreamExt;
 use headers::Authorization;
-use headers::{authorization::Basic, UserAgent};
+use headers::authorization::Basic;
 use hmac::{Hmac, Mac};
 use libsignal_core::{ProtocolAddress, ServiceId, ServiceIdKind};
 use sha2::{Digest, Sha256};
