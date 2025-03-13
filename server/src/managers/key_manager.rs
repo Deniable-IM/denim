@@ -301,8 +301,6 @@ mod key_manager_tests {
             new_device_pre_key_bundle, new_upload_pre_keys, new_upload_signed_pre_key,
         },
     };
-    use base64::prelude::BASE64_STANDARD;
-    use base64::Engine as _;
     use libsignal_protocol::{IdentityKey, KeyPair};
     use rand::rngs::OsRng;
     use sha2::{Digest, Sha256};

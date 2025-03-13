@@ -10,16 +10,20 @@ use axum::{
     extract::ws::{CloseFrame, Message},
     http::{StatusCode, Uri},
 };
-use common::signalservice::{
-    web_socket_message, Envelope, WebSocketMessage, WebSocketRequestMessage,
-    WebSocketResponseMessage,
-};
+use bincode::serialize;
 use common::websocket::connection_state::ConnectionState;
 use common::websocket::net_helper::{
     create_request, create_response, current_millis, generate_req_id, unpack_messages,
     PathExtractor,
 };
 use common::websocket::wsstream::WSStream;
+use common::{
+    signalservice::{
+        web_socket_message, Envelope, WebSocketMessage, WebSocketRequestMessage,
+        WebSocketResponseMessage,
+    },
+    web_api::DenimMessage,
+};
 use futures_util::{stream::SplitSink, SinkExt};
 use libsignal_core::{ProtocolAddress, ServiceId, ServiceIdKind};
 use prost::Message as PMessage;
@@ -119,6 +123,14 @@ impl<W: WSStream<Message, Error> + Debug + Send + 'static, DB: SignalDatabase + 
         let id = generate_req_id();
         message.ephemeral = None; // was false
         message.story = Some(false); // TODO: needs to handled in handle_request instead
+        let denim_msg = DenimMessage {
+            regular_payload: common::web_api::RegularPayload::Envelope(message.clone()),
+            chunks: Vec::new(), //ADD DENIABLE CHUNKS HERE
+            counter: None, //TODO find out what this is used for, is only used for server -> client
+            q: Some(1.0),  // TODO add real q value
+            ballast: 0,
+            extra_ballast: None,
+        };
         let msg = create_request(
             id,
             "PUT",
@@ -127,7 +139,7 @@ impl<W: WSStream<Message, Error> + Debug + Send + 'static, DB: SignalDatabase + 
                 "X-Signal-Key: false".to_string(),
                 format!("X-Signal-Timestamp: {}", current_millis()?),
             ],
-            Some(message.encode_to_vec()),
+            Some(serialize(&denim_msg).unwrap()),
         );
         self.pending_requests
             .insert(id, message.server_guid.expect("This is always some"));
@@ -235,7 +247,7 @@ impl<W: WSStream<Message, Error> + Debug + Send + 'static, DB: SignalDatabase + 
 
         let res = match &self.identity {
             UserIdentity::ProtocolAddress(_) => {
-                todo!("We do not support protocal addresses yet!")
+                todo!("We do not support protocol addresses yet!")
             }
             UserIdentity::AuthenticatedDevice(authenticated_device) => {
                 handle_put_messages(
@@ -372,8 +384,12 @@ pub(crate) mod test {
     };
     use axum::{extract::ws::Message, http::StatusCode, Error};
     use base64::prelude::{Engine as _, BASE64_STANDARD};
-    use common::signalservice::{Envelope, WebSocketMessage};
+    use bincode::deserialize;
     use common::websocket::net_helper::{create_request, create_response};
+    use common::{
+        signalservice::{Envelope, WebSocketMessage},
+        web_api::{DenimMessage, RegularPayload},
+    };
     use futures_util::{stream::SplitStream, StreamExt};
     use libsignal_core::Aci;
     use prost::{bytes::Bytes, Message as PMessage};
@@ -422,14 +438,20 @@ pub(crate) mod test {
         let (mut client, sender, mut receiver, mut mreceiver) =
             create_connection("127.0.0.1:4042", state).await;
 
-        let _ = sender.send(Ok(Message::Text("hello".to_string()))).await;
+        sender
+            .send(Ok(Message::Text("hello".to_string())))
+            .await
+            .unwrap();
 
         match mreceiver.next().await {
             Some(Ok(Message::Text(x))) => assert!(x == "hello", "message was not hello"),
             _ => panic!("Unexpected error when receiving msg"),
         }
 
-        let _ = client.send(Message::Text("hello back".to_string())).await;
+        client
+            .send(Message::Text("hello back".to_string()))
+            .await
+            .unwrap();
 
         if receiver.is_empty() {
             panic!("receiver was empty when it was expected not to be")
@@ -444,7 +466,8 @@ pub(crate) mod test {
     #[tokio::test]
     async fn test_close() {
         let state = SignalServerState::<MockDB, MockSocket>::new();
-        let (mut client, _, _, _) = create_connection("127.0.0.1:4042", state).await;
+        let (mut client, _sender, _receiver, _stream) =
+            create_connection("127.0.0.1:4042", state).await;
 
         assert!(client.is_active());
         client.close().await;
@@ -454,9 +477,10 @@ pub(crate) mod test {
     #[tokio::test]
     async fn test_close_reason() {
         let state = SignalServerState::<MockDB, MockSocket>::new();
-        let (mut client, _, mut receiver, _) = create_connection("127.0.0.1:4042", state).await;
+        let (mut client, _sender, mut receiver, _stream) =
+            create_connection("127.0.0.1:4042", state).await;
         assert!(client.is_active());
-        let _ = client.close_reason(666, "test").await;
+        client.close_reason(666, "test").await.unwrap();
         client.close().await;
         assert!(!client.is_active());
 
@@ -473,12 +497,11 @@ pub(crate) mod test {
     #[tokio::test]
     async fn test_send_message() {
         let state = SignalServerState::<MockDB, MockSocket>::new();
-        let (mut client, _sender, mut receiver, _mreceiver) =
+        let (mut client, _sender, mut receiver, _stream) =
             create_connection("127.0.0.1:4042", state).await;
         let mut env = make_envelope();
         env.server_guid = Some("abs".to_string());
-
-        let _ = client.send_message(env.clone()).await;
+        client.send_message(env.clone()).await.unwrap();
 
         assert!(!receiver.is_empty());
 
@@ -497,22 +520,32 @@ pub(crate) mod test {
         assert!(req.headers.len() == 2);
         assert!(req.headers[0] == "X-Signal-Key: false");
         assert!(req.headers[1].starts_with("X-Signal-Timestamp:"));
-        assert!(req.body.unwrap() == env.encode_to_vec());
+        let denim_msg: DenimMessage = deserialize(&req.body.unwrap()).unwrap();
+        let RegularPayload::Envelope(signal_msg) = denim_msg.regular_payload else {
+            panic!("No envelope received")
+        };
+        assert!(signal_msg.encode_to_vec() == env.encode_to_vec());
     }
 
     #[tokio::test]
     async fn test_on_receive_request() {
         let state = SignalServerState::<MockDB, MockSocket>::new();
-        let (mut client, _sender, _receiver, _mreceiver) =
+        let (mut client, _sender, _receiver, _stream) =
             create_connection("127.0.0.1:4042", state).await;
         let msg = r#"
         {
             "messages":[
                 {
-                    "type": 1,
-                    "destinationDeviceId": 3,
-                    "destinationRegistrationId": 22,
-                    "content": "aGVsbG8="
+                    "regularPayload": {
+                        "signalMessage": {
+                            "type": 1,
+                            "destinationDeviceId": 3,
+                            "destinationRegistrationId": 22,
+                            "content": "aGVsbG8="
+                        }
+                    },
+                    "chunks": [],
+                    "ballast": 0
                 }
             ],
             "online": false,
@@ -539,7 +572,7 @@ pub(crate) mod test {
     #[tokio::test]
     async fn test_on_receive_response() {
         let state = SignalServerState::<MockDB, MockSocket>::new();
-        let (mut client, _sender, _receiver, _mreceiver) =
+        let (mut client, _sender, _receiver, _stream) =
             create_connection("127.0.0.1:4042", state).await;
         client
             .on_receive(create_response(1, StatusCode::OK, vec![], None).unwrap())
@@ -552,7 +585,7 @@ pub(crate) mod test {
             SignalServerState::<PostgresDatabase, MockSocket>::connect("DATABASE_URL_TEST").await;
         let (alice, alice_sender, mut alice_receiver, alice_mreceiver) =
             create_connection("127.0.0.1:4042", state.clone()).await;
-        let (bob, _bob_sender, mut bob_receiver, bob_mreceiver) =
+        let (bob, _alice_sender, mut bob_receiver, bob_mreceiver) =
             create_connection("127.0.0.1:4042", state.clone()).await;
 
         match &alice.identity {
@@ -587,20 +620,26 @@ pub(crate) mod test {
 
         let sending_msg = format!(
             r#"
-        {{
-            "messages":[
-                {{
-                    "type": 1,
-                    "destinationDeviceId": {},
-                    "destinationRegistrationId": {},
-                    "content": "aGVsbG8="
-                }}
-            ],
-            "online": false,
-            "urgent": true,
-            "timestamp": 1730217386
-        }}
-        "#,
+            {{
+                "messages":[
+                    {{
+                        "regularPayload": {{
+                            "signalMessage": {{
+                                "type": 1,
+                                "destinationDeviceId": {},
+                                "destinationRegistrationId": {},
+                                "content": "aGVsbG8="
+                            }}
+                        }},
+                        "chunks": [],
+                        "ballast": 0
+                    }}
+                ],
+                "online": false,
+                "urgent": true,
+                "timestamp": 1730217386
+            }}
+            "#,
             bob_address.device_id(),
             reg_id,
         )
@@ -666,13 +705,12 @@ pub(crate) mod test {
             _ => panic!("Expected binary message"),
         };
 
+        let denim_msg: DenimMessage = deserialize(&message.request.unwrap().body.unwrap()).unwrap();
+        let RegularPayload::Envelope(signal_msg) = denim_msg.regular_payload else {
+            panic!("No envelope received")
+        };
         assert_eq!(
-            BASE64_STANDARD.encode(
-                Envelope::decode(Bytes::from(message.request.unwrap().body.unwrap()))
-                    .unwrap()
-                    .content
-                    .unwrap()
-            ),
+            BASE64_STANDARD.encode(signal_msg.content.unwrap()),
             "aGVsbG8="
         );
     }
@@ -693,8 +731,11 @@ pub(crate) mod test {
             .message_manager
             .add_message_availability_listener(&address, listener)
             .await;
-
-        let _ = state.message_manager.insert(&address, &mut env).await;
+        state
+            .message_manager
+            .insert(&address, &mut env)
+            .await
+            .unwrap();
 
         let msg = match receiver.recv().await {
             Some(Message::Binary(x)) => {
@@ -728,13 +769,17 @@ pub(crate) mod test {
         assert!(req.headers.len() == 2);
         assert!(req.headers[0] == "X-Signal-Key: false");
         assert!(req.headers[1].starts_with("X-Signal-Timestamp:"));
-        assert!(req.body.unwrap() == env.encode_to_vec());
+        let denim_msg: DenimMessage = deserialize(&req.body.unwrap()).unwrap();
+        let RegularPayload::Envelope(signal_msg) = denim_msg.regular_payload else {
+            panic!("No envelope received")
+        };
+        assert!(signal_msg.encode_to_vec() == env.encode_to_vec());
     }
 
     #[tokio::test]
     async fn test_keepalive_for_present_device() {
         let mut state = SignalServerState::<MockDB, MockSocket>::new();
-        let (client, _, mut receiver, _) =
+        let (client, _sender, mut receiver, _stream) =
             create_connection("127.0.0.1:4042", state.clone()).await;
 
         let addr = client.protocol_address();
@@ -743,8 +788,8 @@ pub(crate) mod test {
         let _ = state
             .client_presence_manager
             .set_present(&addr, websocket.clone())
-            .await;
-
+            .await
+            .unwrap();
         websocket
             .lock()
             .await
@@ -765,14 +810,15 @@ pub(crate) mod test {
     #[tokio::test]
     async fn test_keepalive_for_unpresent_device() {
         let state = SignalServerState::<MockDB, MockSocket>::new();
-        let (mut client, _, mut receiver, _) =
+        let (mut client, _sender, mut receiver, _stream) =
             create_connection("127.0.0.1:4042", state.clone()).await;
 
         let _ = state
             .clone()
             .client_presence_manager
             .disconnect_presence_in_test(&client.protocol_address())
-            .await;
+            .await
+            .unwrap();
 
         client
             .on_receive(create_request(1, "PUT", "/v1/keepalive", vec![], None))

@@ -1,5 +1,4 @@
 use core::fmt;
-use std::net::SocketAddr;
 
 use axum::{
     http::{header, StatusCode},
@@ -29,22 +28,3 @@ impl fmt::Display for ApiError {
         write!(f, "API Error {}: {}", self.status_code, self.body)
     }
 }
-
-#[derive(Debug)]
-pub enum SocketManagerError {
-    SocketClosed,
-    NoAddress(SocketAddr),
-    Axum(axum::Error),
-}
-
-impl fmt::Display for SocketManagerError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            SocketManagerError::SocketClosed => write!(f, "Socket was closed"),
-            SocketManagerError::NoAddress(who) => write!(f, "use_ws ERROR: no address '{}'", who),
-            SocketManagerError::Axum(err) => write!(f, "{}", err),
-        }
-    }
-}
-
-impl std::error::Error for SocketManagerError {}

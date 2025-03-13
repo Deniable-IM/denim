@@ -1,6 +1,5 @@
 use client::Client;
 use dotenv::dotenv;
-use libsignal_core::ServiceId;
 use regex::Regex;
 use server::SignalServer;
 use std::{
@@ -10,7 +9,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
 };
-use storage::{device::Device, generic::SignalStore};
+use storage::device::Device;
 
 mod client;
 mod contact_manager;

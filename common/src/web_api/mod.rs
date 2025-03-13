@@ -10,6 +10,8 @@ use serde::{Deserialize, Serialize};
 use serde_with::{base64::Base64, serde_as};
 use uuid::Uuid;
 
+use crate::signalservice::Envelope;
+
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum AccountCapabilityMode {
@@ -306,6 +308,31 @@ pub struct DeviceActivationRequest {
     pub pni_pq_last_resort_pre_key: UploadSignedPreKey,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub enum RegularPayload {
+    SignalMessage(SignalMessage),
+    Envelope(Envelope),
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DenimMessage {
+    pub regular_payload: RegularPayload,
+    pub chunks: Vec<DenimChunk>,
+    pub counter: Option<i32>,
+    pub q: Option<f32>,
+    pub ballast: i32,
+    pub extra_ballast: Option<i32>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DenimChunk {
+    pub chunk: Vec<u8>,
+    pub flags: i32,
+}
+
 /// Used to upload any type of prekey along with a signature that is used
 /// to verify the authenticity of the prekey.
 #[serde_as]
@@ -314,9 +341,9 @@ pub struct DeviceActivationRequest {
 pub struct UploadSignedPreKey {
     pub key_id: u32,
     #[serde_as(as = "Base64")]
-    pub public_key: Box<[u8]>, // TODO: Make this a PublicKey and implement Serialize
+    pub public_key: Box<[u8]>,
     #[serde_as(as = "Base64")]
-    pub signature: Box<[u8]>, // TODO: Make this a PublicKey and implement Serialize
+    pub signature: Box<[u8]>,
 }
 
 impl From<SignedPreKeyRecord> for UploadSignedPreKey {
@@ -543,14 +570,14 @@ impl TryFrom<PreKeyResponse> for Vec<PreKeyBundle> {
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct SignalMessages {
-    pub messages: Vec<SignalMessage>,
+pub struct DenimMessages {
+    pub messages: Vec<DenimMessage>,
     pub online: bool,
     pub urgent: bool,
     pub timestamp: u64,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SignalMessage {
     pub r#type: i32,

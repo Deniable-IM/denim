@@ -99,6 +99,7 @@ impl<T: DisplacedPresenceListener> ClientPresenceManager<T> {
         Ok(())
     }
 
+    #[allow(dead_code)]
     async fn renew_presence(&mut self, address: &ProtocolAddress) -> Result<()> {
         let presence_key = self.get_presence_key(address);
         let mut connection = self.pool.get().await?;
@@ -164,6 +165,7 @@ impl<T: DisplacedPresenceListener> ClientPresenceManager<T> {
             .contains_key(&self.get_presence_key(address))
     }
 
+    #[allow(dead_code)]
     async fn disconnect_presence(&mut self, address: &ProtocolAddress) -> Result<u8> {
         self.disconnect_all_presence(address.name(), vec![address.device_id()])
             .await
@@ -239,7 +241,7 @@ mod client_presence_manager_test {
 
     #[async_trait::async_trait]
     impl DisplacedPresenceListener for MockWebSocketConnection {
-        async fn handle_displacement(&mut self, connected_elsewhere: bool) {
+        async fn handle_displacement(&mut self, _: bool) {
             self.evoke_handle_displacement = true;
         }
     }

@@ -207,7 +207,8 @@ mod message_persister_tests {
 
         message_cache
             .insert(protocol_address, envelope, message_guid)
-            .await;
+            .await
+            .unwrap();
     }
 
     async fn check_queue_key_timestamp(

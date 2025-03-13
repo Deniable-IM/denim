@@ -1,6 +1,7 @@
 use serde::Deserialize;
 #[derive(Deserialize)]
 pub struct PutV1MessageParams {
+    #[allow(dead_code)]
     pub story: bool,
 }
 
