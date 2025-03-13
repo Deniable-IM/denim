@@ -5,7 +5,6 @@ use crate::{
     message_cache::MessageAvailabilityListener,
     server::{handle_keepalive, handle_put_messages},
 };
-use axum::extract::ws::WebSocket;
 use axum::Error;
 use axum::{
     extract::ws::{CloseFrame, Message},
@@ -28,15 +27,7 @@ use common::{
 use futures_util::{stream::SplitSink, Sink, SinkExt, Stream};
 use libsignal_core::{ProtocolAddress, ServiceId, ServiceIdKind};
 use prost::Message as PMessage;
-use std::{
-    collections::HashMap,
-    fmt::Debug,
-    net::SocketAddr,
-    pin::Pin,
-    sync::Arc,
-    task::{Context, Poll},
-    time::SystemTimeError,
-};
+use std::{collections::HashMap, fmt::Debug, net::SocketAddr, sync::Arc, time::SystemTimeError};
 use tokio::sync::Mutex;
 
 #[derive(Debug)]
@@ -238,6 +229,7 @@ impl<W: WSStream<Message, Error> + Debug + Send + 'static, DB: SignalDatabase + 
         if request_msq.path().starts_with("/v1/keepalive") {
             let user = match &self.identity {
                 UserIdentity::ProtocolAddress(_) => {
+                UserIdentity::ProtocolAddress(_) => {
                     todo!()
                 }
                 UserIdentity::AuthenticatedDevice(auth_device) => auth_device,
@@ -372,55 +364,6 @@ where
         if let Err(x) = fut.await {
             println!("Displacement Close Error: {}", x);
         };
-    }
-}
-
-#[derive(Debug)]
-pub struct SignalWebSocket(WebSocket);
-impl SignalWebSocket {
-    pub fn new(w: WebSocket) -> Self {
-        Self(w)
-    }
-}
-
-impl Stream for SignalWebSocket {
-    type Item = Result<Message, Error>;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Stream::poll_next(Pin::new(&mut self.0), cx)
-    }
-}
-
-impl Sink<Message> for SignalWebSocket {
-    type Error = Error;
-
-    fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Sink::poll_ready(Pin::new(&mut self.0), cx)
-    }
-
-    fn start_send(mut self: Pin<&mut Self>, item: Message) -> Result<(), Self::Error> {
-        Sink::start_send(Pin::new(&mut self.0), item)
-    }
-
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Sink::poll_flush(Pin::new(&mut self.0), cx)
-    }
-
-    fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Sink::poll_close(Pin::new(&mut self.0), cx)
-    }
-}
-
-#[async_trait::async_trait]
-impl WSStream<Message, Error> for SignalWebSocket {
-    async fn recv(&mut self) -> Option<Result<Message, Error>> {
-        self.recv().await
-    }
-    async fn send(&mut self, msg: Message) -> Result<(), Error> {
-        SinkExt::send(self, msg).await
-    }
-    async fn close(self) -> Result<(), Error> {
-        self.close().await
     }
 }
 
@@ -648,6 +591,7 @@ pub(crate) mod test {
 
         match &alice.identity {
             UserIdentity::ProtocolAddress(_) => todo!(),
+            UserIdentity::ProtocolAddress(_) => todo!(),
             UserIdentity::AuthenticatedDevice(authenticated_device) => state
                 .db
                 .add_account(authenticated_device.account())
@@ -663,8 +607,8 @@ pub(crate) mod test {
         let alice_address = alice.protocol_address();
         let bob_address = bob.protocol_address();
 
-        state.websocket_manager.insert(alice, alice_mreceiver).await;
-        state.websocket_manager.insert(bob, bob_mreceiver).await;
+        state.websocket_manager.listen(alice, alice_mreceiver).await;
+        state.websocket_manager.listen(bob, bob_mreceiver).await;
         let ws_alice = state.websocket_manager.get(&alice_address).await.unwrap();
         let ws_bob = state.websocket_manager.get(&bob_address).await.unwrap();
         state
@@ -718,6 +662,7 @@ pub(crate) mod test {
             .await
             .unwrap();
 
+        sleep(Duration::from_millis(100)).await;
         sleep(Duration::from_millis(100)).await;
 
         assert!(ws_bob.lock().await.is_active());
@@ -778,10 +723,11 @@ pub(crate) mod test {
     async fn test_handle_new_messages_available() {
         let mut state = SignalServerState::<MockDB, MockSocket>::new();
         let (ws, _sender, mut receiver, mreceiver) =
+        let (ws, _sender, mut receiver, mreceiver) =
             create_connection("127.0.0.1:4043", state.clone()).await;
         let address = ws.protocol_address();
         let mut mgr = state.websocket_manager.clone();
-        mgr.insert(ws, mreceiver).await;
+        mgr.listen(ws, mreceiver).await;
         let listener = mgr.get(&address).await.unwrap();
         let mut env = make_envelope();
 
@@ -843,7 +789,7 @@ pub(crate) mod test {
         let addr = client.protocol_address();
         let websocket = Arc::new(tokio::sync::Mutex::new(client));
 
-        state
+        let _ = state
             .client_presence_manager
             .set_present(&addr, websocket.clone())
             .await
@@ -871,7 +817,7 @@ pub(crate) mod test {
         let (mut client, _sender, mut receiver, _stream) =
             create_connection("127.0.0.1:4042", state.clone()).await;
 
-        state
+        let _ = state
             .clone()
             .client_presence_manager
             .disconnect_presence_in_test(&client.protocol_address())

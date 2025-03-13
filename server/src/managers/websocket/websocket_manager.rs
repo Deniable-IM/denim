@@ -68,63 +68,76 @@ where
         }
     }
 
-    pub async fn insert(
+    pub async fn listen(
         &mut self,
         connection: WebSocketConnection<T, U>,
         mut receiver: SplitStream<T>,
     ) {
         let address = connection.protocol_address();
-        let connection: ClientConnection<T, U> = Arc::new(Mutex::new(connection));
+        let connection = Arc::new(Mutex::new(connection));
+        self.register_new_connection(address.clone(), connection.clone())
+            .await;
 
-        self.sockets
-            .lock()
-            .await
-            .insert(address.clone(), connection.clone());
-        let mut mgr = self.clone();
+        tokio::spawn({
+            let mut self_clone = self.clone();
 
-        tokio::spawn(async move {
-            while let Some(res) = receiver.next().await {
-                let Ok(msg) = res else {
-                    println!("WebSocketManager recv ERROR: {}", res.unwrap_err());
-                    connection.lock().await.close().await;
-                    break;
-                };
-
-                match msg {
-                    Message::Binary(b) => {
-                        let msg = match WebSocketMessage::decode(Bytes::from(b)) {
-                            Ok(msg) => msg,
-                            Err(err) => {
-                                println!("WebSocketManager ERROR - Message::Binary: {}", err);
-                                let _ = connection
-                                    .lock()
-                                    .await
-                                    .close_reason(1007, "Badly formatted")
-                                    .await;
-                                break;
-                            }
-                        };
-                        connection.lock().await.on_receive(msg).await.unwrap();
-                    }
-                    Message::Text(t) => {
-                        println!("Message '{}' from '{}'", t, address);
-                        println!("replying...");
-                        let _ = connection.lock().await.send(Message::Text(t)).await;
-                        println!("sent!");
-                    }
-                    Message::Close(_) => {
+            async move {
+                while let Some(res) = receiver.next().await {
+                    let Ok(msg) = res else {
+                        println!("WebSocketManager recv ERROR: {}", res.unwrap_err());
+                        self_clone
+                            .close_connection(&address, connection.clone())
+                            .await;
                         break;
+                    };
+
+                    match msg {
+                        Message::Binary(b) => {
+                            let msg = match WebSocketMessage::decode(Bytes::from(b)) {
+                                Ok(msg) => msg,
+                                Err(err) => {
+                                    println!("WebSocketManager ERROR - Message::Binary: {}", err);
+                                    let _ = connection
+                                        .lock()
+                                        .await
+                                        .close_reason(1007, "Badly formatted")
+                                        .await;
+                                    break;
+                                }
+                            };
+                            connection.lock().await.on_receive(msg).await.unwrap();
+                        }
+                        Message::Text(t) => {
+                            println!("Message '{}' from '{}'", t, address);
+                            println!("replying...");
+                            let _ = connection.lock().await.send(Message::Text(t)).await;
+                            println!("sent!");
+                        }
+                        Message::Close(_) => {
+                            break;
+                        }
+                        _ => {}
                     }
-                    _ => {}
                 }
+
+                if self_clone
+                    .close_connection(&address, connection)
+                    .await
+                    .is_none()
+                {
+                    println!("WebSocketManager: Client was already removed from Manager!")
+                };
             }
-
-            connection.lock().await.close().await;
-
-            if mgr.remove(&address).await.is_none() {
-                println!("WebSocketManager: Client was already removed from Manager!")
-            };
         });
+    }
+
+    /// Keep new connection open
+    pub async fn register_new_connection(
+        &mut self,
+        address: ProtocolAddress,
+        connection: ClientConnection<T, U>,
+    ) {
+        self.sockets.lock().await.insert(address, connection);
     }
 
     pub async fn is_connected(&mut self, address: &ProtocolAddress) -> bool {
@@ -139,7 +152,13 @@ where
         self.sockets.lock().await.get_mut(address).cloned()
     }
 
-    async fn remove(&mut self, address: &ProtocolAddress) -> Option<ClientConnection<T, U>> {
+    async fn close_connection(
+        &mut self,
+        address: &ProtocolAddress,
+        connection: ClientConnection<T, U>,
+    ) -> Option<ClientConnection<T, U>> {
+        connection.lock().await.close().await;
+        print!("Connection closed!");
         self.sockets.lock().await.remove(address)
     }
 }
@@ -164,7 +183,7 @@ mod test {
             create_connection("127.0.0.1:4043", state.clone()).await;
         let address = ws.protocol_address();
         let mut mgr = state.websocket_manager.clone();
-        mgr.insert(ws, mreceiver).await;
+        mgr.listen(ws, mreceiver).await;
 
         assert!(mgr.is_connected(&address).await)
     }
@@ -176,7 +195,7 @@ mod test {
             create_connection("127.0.0.1:4043", state.clone()).await;
         let address = ws.protocol_address();
         let mut mgr = state.websocket_manager.clone();
-        mgr.insert(ws, mreceiver).await;
+        mgr.listen(ws, mreceiver).await;
 
         let ws: ClientConnection<MockSocket, MockDB> = mgr.get(&address).await.unwrap();
 
@@ -196,7 +215,7 @@ mod test {
             create_connection("127.0.0.1:4043", state.clone()).await;
         let address = ws.protocol_address();
         let mut mgr = state.websocket_manager.clone();
-        mgr.insert(ws, mreceiver).await;
+        mgr.listen(ws, mreceiver).await;
 
         let ws: ClientConnection<MockSocket, MockDB> = mgr.get(&address).await.unwrap();
 
@@ -219,7 +238,7 @@ mod test {
             create_connection("127.0.0.1:4043", state.clone()).await;
         let address = ws.protocol_address();
         let mut mgr = state.websocket_manager.clone();
-        mgr.insert(ws, mreceiver).await;
+        mgr.listen(ws, mreceiver).await;
 
         let ws: ClientConnection<MockSocket, MockDB> = mgr.get(&address).await.unwrap();
 
@@ -239,7 +258,7 @@ mod test {
             create_connection("127.0.0.1:4043", state.clone()).await;
         let address = ws.protocol_address();
         let mut mgr = state.websocket_manager.clone();
-        mgr.insert(ws, mreceiver).await;
+        mgr.listen(ws, mreceiver).await;
 
         let ws: ClientConnection<MockSocket, MockDB> = mgr.get(&address).await.unwrap();
 
@@ -269,7 +288,7 @@ mod test {
             create_connection("127.0.0.1:4043", state.clone()).await;
         let address = ws.protocol_address();
         let mut mgr = state.websocket_manager.clone();
-        mgr.insert(ws, mreceiver).await;
+        mgr.listen(ws, mreceiver).await;
 
         let ws: ClientConnection<MockSocket, MockDB> = mgr.get(&address).await.unwrap();
 
@@ -325,7 +344,7 @@ mod test {
             create_connection("127.0.0.1:4043", state.clone()).await;
         let address = ws.protocol_address();
         let mut mgr = state.websocket_manager.clone();
-        mgr.insert(ws, mreceiver).await;
+        mgr.listen(ws, mreceiver).await;
 
         let ws: ClientConnection<MockSocket, MockDB> = mgr.get(&address).await.unwrap();
 

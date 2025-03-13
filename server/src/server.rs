@@ -7,8 +7,10 @@ use crate::{
     managers::{
         message_persister::MessagePersister,
         state::SignalServerState,
-        websocket::connection::{SignalWebSocket, UserIdentity, WebSocketConnection},
+        websocket::connection::{UserIdentity, WebSocketConnection},
+        websocket::signal_websocket::SignalWebSocket,
     },
+    message_cache::MessageAvailabilityListener,
     postgres::PostgresDatabase,
     query::CheckKeysRequest,
     response::{LinkDeviceResponse, LinkDeviceToken, SendMessageResponse},
@@ -43,10 +45,9 @@ use common::web_api::{
     DevicePreKeyBundle, LinkDeviceRequest, PreKeyCount, PreKeyResponse, RegistrationRequest,
     RegistrationResponse, RegularPayload, SetKeyRequest, SignalMessage,
 };
-use common::websocket::wsstream::WSStream;
 use futures_util::StreamExt;
-use headers::authorization::Basic;
 use headers::Authorization;
+use headers::{authorization::Basic, UserAgent};
 use hmac::{Hmac, Mac};
 use libsignal_core::{ProtocolAddress, ServiceId, ServiceIdKind};
 use sha2::{Digest, Sha256};
@@ -507,7 +508,7 @@ fn parse_service_id(string: String) -> Result<ServiceId, ApiError> {
     })
 }
 
-/// Handler for the PUT v1/messages/{address} endpoint.
+/// Handler for the GET v1/identifier/{phone_number} endpoint.
 #[debug_handler]
 async fn get_identifier_endpoint(
     State(state): State<SignalServerState<PostgresDatabase, SignalWebSocket>>,
@@ -693,44 +694,63 @@ async fn post_link_device_endpoint(
     handle_post_link_device(state, basic, link_device_request).await
 }
 
-// Websocket upgrade handler '/v1/websocket'
+/// Websocket upgrade handler '/v1/websocket'
 #[debug_handler]
 async fn create_websocket_endpoint(
     State(mut state): State<SignalServerState<PostgresDatabase, SignalWebSocket>>,
     authenticated_device: AuthenticatedDevice,
     ws: WebSocketUpgrade,
     user_agent: Option<TypedHeader<headers::UserAgent>>,
-    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    ConnectInfo(socket_addr): ConnectInfo<SocketAddr>,
 ) -> impl IntoResponse {
-    let user_agent = if let Some(TypedHeader(user_agent)) = user_agent {
-        user_agent.to_string()
-    } else {
-        String::from("Unknown browser")
+    let user_agent = match user_agent {
+        Some(TypedHeader(user_agent)) => user_agent.to_string(),
+        None => "Unknown browser".to_string(),
     };
-    println!("`{user_agent}` at {addr} connected.");
+
+    println!("`{user_agent}` at {socket_addr} connected.");
+
     ws.on_upgrade(move |socket| {
-        let mut wmgr = state.websocket_manager.clone();
+        let mut websocket_manager = state.websocket_manager.clone();
         async move {
-            let wrap = SignalWebSocket::new(socket);
-            let (sender, receiver) = wrap.split();
-            let ws = WebSocketConnection::new(
+            let signal_websocket = SignalWebSocket::new(socket);
+            let (sender, receiver) = signal_websocket.split();
+
+            // Create websocket connection
+            let websocket = WebSocketConnection::new(
                 UserIdentity::AuthenticatedDevice(authenticated_device.into()),
-                addr,
+                socket_addr,
                 sender,
                 state.clone(),
             );
-            let addr = ws.protocol_address();
-            wmgr.insert(ws, receiver).await;
-            let Some(ws) = wmgr.get(&addr).await else {
+
+            let address = websocket.protocol_address();
+
+            // Listen for new messages
+            websocket_manager.listen(websocket, receiver).await;
+
+            // Check if webSocket upgrade was successful
+            let Some(websocket_manager) = websocket_manager.get(&address).await else {
                 println!("ws.on_upgrade: WebSocket does not exist in WebSocketManager");
                 return;
             };
-            ws.lock().await.send_messages(false).await;
+
+            // Send all persisted message to new connected device
+            websocket_manager
+                .lock()
+                .await
+                .handle_messages_persisted()
+                .await;
+
             state
                 .message_manager
-                .add_message_availability_listener(&addr, ws.clone())
+                .add_message_availability_listener(&address, websocket_manager.clone())
                 .await;
-            let _ = state.client_presence_manager.set_present(&addr, ws).await;
+
+            let _ = state
+                .client_presence_manager
+                .set_present(&address, websocket_manager)
+                .await;
         }
     })
 }
