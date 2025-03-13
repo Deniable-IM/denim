@@ -49,6 +49,7 @@ use common::{
     websocket::wsstream::WSStream,
 };
 use futures_util::StreamExt;
+use headers::authorization::Basic;
 use headers::Authorization;
 use headers::authorization::Basic;
 use hmac::{Hmac, Mac};

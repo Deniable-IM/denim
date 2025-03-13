@@ -5,3 +5,4 @@ pub mod message_persister;
 pub mod messages_manager;
 pub mod state;
 pub mod websocket;
+pub mod denim_manager;
