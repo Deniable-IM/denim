@@ -40,10 +40,13 @@ use axum::{
 use axum_extra::{headers, TypedHeader};
 use axum_server::tls_rustls::RustlsConfig;
 use base64::prelude::{Engine as _, BASE64_URL_SAFE, BASE64_URL_SAFE_NO_PAD};
-use common::web_api::{
-    authorization::BasicAuthorizationHeader, DenimMessages, DeviceCapabilityType,
-    DevicePreKeyBundle, LinkDeviceRequest, PreKeyCount, PreKeyResponse, RegistrationRequest,
-    RegistrationResponse, RegularPayload, SetKeyRequest, SignalMessage,
+use common::{
+    web_api::{
+        authorization::BasicAuthorizationHeader, DenimMessages, DeviceCapabilityType,
+        DevicePreKeyBundle, LinkDeviceRequest, PreKeyCount, PreKeyResponse, RegistrationRequest,
+        RegistrationResponse, RegularPayload, SetKeyRequest, SignalMessage,
+    },
+    websocket::wsstream::WSStream,
 };
 use futures_util::StreamExt;
 use headers::Authorization;

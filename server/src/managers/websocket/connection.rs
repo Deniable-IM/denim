@@ -24,7 +24,7 @@ use common::{
     },
     web_api::DenimMessage,
 };
-use futures_util::{stream::SplitSink, Sink, SinkExt, Stream};
+use futures_util::{stream::SplitSink, SinkExt};
 use libsignal_core::{ProtocolAddress, ServiceId, ServiceIdKind};
 use prost::Message as PMessage;
 use std::{collections::HashMap, fmt::Debug, net::SocketAddr, sync::Arc, time::SystemTimeError};
@@ -228,7 +228,6 @@ impl<W: WSStream<Message, Error> + Debug + Send + 'static, DB: SignalDatabase + 
 
         if request_msq.path().starts_with("/v1/keepalive") {
             let user = match &self.identity {
-                UserIdentity::ProtocolAddress(_) => {
                 UserIdentity::ProtocolAddress(_) => {
                     todo!()
                 }
@@ -591,7 +590,6 @@ pub(crate) mod test {
 
         match &alice.identity {
             UserIdentity::ProtocolAddress(_) => todo!(),
-            UserIdentity::ProtocolAddress(_) => todo!(),
             UserIdentity::AuthenticatedDevice(authenticated_device) => state
                 .db
                 .add_account(authenticated_device.account())
@@ -663,7 +661,6 @@ pub(crate) mod test {
             .unwrap();
 
         sleep(Duration::from_millis(100)).await;
-        sleep(Duration::from_millis(100)).await;
 
         assert!(ws_bob.lock().await.is_active());
         let alice_response =
@@ -722,7 +719,6 @@ pub(crate) mod test {
     #[tokio::test]
     async fn test_handle_new_messages_available() {
         let mut state = SignalServerState::<MockDB, MockSocket>::new();
-        let (ws, _sender, mut receiver, mreceiver) =
         let (ws, _sender, mut receiver, mreceiver) =
             create_connection("127.0.0.1:4043", state.clone()).await;
         let address = ws.protocol_address();
