@@ -529,7 +529,7 @@ fn parse_service_id(string: String) -> Result<ServiceId, ApiError> {
     })
 }
 
-/// Handler for the PUT v1/messages/{address} endpoint.
+/// Handler for the GET v1/identifier/{phone_number} endpoint.
 #[debug_handler]
 async fn get_identifier_endpoint(
     State(state): State<SignalServerState<PostgresDatabase, SignalWebSocket>>,
