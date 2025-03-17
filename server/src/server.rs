@@ -1,26 +1,15 @@
 use crate::{
-    account::{Account, AuthenticatedDevice, Device},
-    account_authenticator::SaltedTokenHash,
-    database::SignalDatabase,
-    envelope::ToEnvelope,
-    error::ApiError,
-    managers::{
+    account::{Account, AuthenticatedDevice, Device}, account_authenticator::SaltedTokenHash, availability_listener::AvailabilityListener, database::SignalDatabase, envelope::ToEnvelope, error::ApiError, managers::{
         message_persister::MessagePersister,
         state::SignalServerState,
         websocket::{
             connection::{UserIdentity, WebSocketConnection},
             signal_websocket::SignalWebSocket,
         },
-    },
-    message_cache::MessageAvailabilityListener,
-    persister::Persister,
-    postgres::PostgresDatabase,
-    query::CheckKeysRequest,
-    response::{LinkDeviceResponse, LinkDeviceToken, SendMessageResponse},
-    validators::{
+    }, persister::Persister, postgres::PostgresDatabase, query::CheckKeysRequest, response::{LinkDeviceResponse, LinkDeviceToken, SendMessageResponse}, validators::{
         destination_device_validator::DestinationDeviceValidator,
         pre_key_signature_validator::PreKeySignatureValidator,
-    },
+    }
 };
 use anyhow::Result;
 use axum::{
@@ -743,7 +732,7 @@ async fn create_websocket_endpoint(
             websocket_manager
                 .lock()
                 .await
-                .handle_messages_persisted()
+                .send_persisted()
                 .await;
 
             state

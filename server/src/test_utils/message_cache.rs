@@ -1,4 +1,4 @@
-use crate::message_cache::MessageAvailabilityListener;
+use crate::availability_listener::AvailabilityListener;
 use common::signalservice::Envelope;
 use redis::cmd;
 use uuid::Uuid;
@@ -57,13 +57,13 @@ impl MockWebSocketConnection {
 }
 
 #[async_trait::async_trait]
-impl MessageAvailabilityListener for MockWebSocketConnection {
-    async fn handle_new_messages_available(&mut self) -> bool {
+impl AvailabilityListener for MockWebSocketConnection {
+    async fn send_cached(&mut self) -> bool {
         self.evoked_handle_new_messages = true;
         true
     }
 
-    async fn handle_messages_persisted(&mut self) -> bool {
+    async fn send_persisted(&mut self) -> bool {
         self.evoked_handle_messages_persisted = true;
         true
     }

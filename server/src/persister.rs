@@ -4,8 +4,8 @@ use std::sync::{
 };
 
 use crate::{
-    database::SignalDatabase, managers::manager::Manager,
-    message_cache::MessageAvailabilityListener,
+    availability_listener::AvailabilityListener, database::SignalDatabase,
+    managers::manager::Manager,
 };
 use anyhow::Result;
 
@@ -14,7 +14,7 @@ pub type RunFlag = Arc<AtomicBool>;
 pub trait Persister<T, U>
 where
     T: SignalDatabase,
-    U: MessageAvailabilityListener + Send + 'static,
+    U: AvailabilityListener + 'static,
 {
     type Manager: IntoIterator<Item = Box<dyn Manager>>;
 

@@ -1,8 +1,8 @@
 use crate::{
     account::AuthenticatedDevice,
+    availability_listener::AvailabilityListener,
     database::SignalDatabase,
     managers::{client_presence_manager::DisplacedPresenceListener, state::SignalServerState},
-    message_cache::MessageAvailabilityListener,
     server::{handle_keepalive, handle_put_messages},
 };
 use axum::Error;
@@ -45,7 +45,7 @@ pub struct WebSocketConnection<W: WSStream<Message, Error> + Debug, DB: SignalDa
     state: SignalServerState<DB, W>,
 }
 
-impl<W: WSStream<Message, Error> + Debug + Send + 'static, DB: SignalDatabase + Send + 'static>
+impl<W: WSStream<Message, Error> + Debug + Send + 'static, DB: SignalDatabase>
     WebSocketConnection<W, DB>
 {
     pub fn new(
@@ -328,19 +328,19 @@ impl<W: WSStream<Message, Error> + Debug + Send + 'static, DB: SignalDatabase + 
 }
 
 #[async_trait::async_trait]
-impl<T, U> MessageAvailabilityListener for WebSocketConnection<T, U>
+impl<T, U> AvailabilityListener for WebSocketConnection<T, U>
 where
     T: WSStream<Message, Error> + Debug + 'static,
     U: SignalDatabase,
 {
-    async fn handle_new_messages_available(&mut self) -> bool {
+    async fn send_cached(&mut self) -> bool {
         if !(self.is_active() && self.send_messages(true).await) {
             return false;
         }
         self.send_queue_empty().await
     }
 
-    async fn handle_messages_persisted(&mut self) -> bool {
+    async fn send_persisted(&mut self) -> bool {
         if !(self.is_active() && self.send_messages(false).await) {
             return false;
         }
@@ -351,7 +351,7 @@ where
 #[async_trait::async_trait]
 impl<T, U> DisplacedPresenceListener for WebSocketConnection<T, U>
 where
-    T: WSStream<Message, axum::Error> + Debug + 'static,
+    T: WSStream<Message, Error> + Debug + 'static,
     U: SignalDatabase,
 {
     async fn handle_displacement(&mut self, connected_elsewhere: bool) {

@@ -29,7 +29,7 @@ where
 
 impl<T, U> Clone for SignalServerState<T, U>
 where
-    T: SignalDatabase + Clone,
+    T: SignalDatabase,
     U: WSStream<Message, axum::Error> + Debug,
 {
     fn clone(&self) -> Self {

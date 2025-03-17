@@ -59,8 +59,8 @@ where
 
 impl<T, U> WebSocketManager<T, U>
 where
-    T: WSStream<Message, axum::Error> + Debug + Send + 'static,
-    U: SignalDatabase + Send + 'static,
+    T: WSStream<Message, axum::Error> + Debug,
+    U: SignalDatabase,
 {
     pub fn new() -> Self {
         Self {

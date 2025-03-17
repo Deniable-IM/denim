@@ -9,6 +9,7 @@ use axum::{
     async_trait,
     extract::FromRequestParts,
     http::{request::Parts, StatusCode},
+    Error,
 };
 use axum_extra::{
     headers::{authorization::Basic, Authorization},
@@ -24,10 +25,10 @@ const SALT_SIZE: usize = 16;
 const AUTH_TOKEN_HKDF_INFO: &[u8] = "authtoken".as_bytes();
 
 #[async_trait]
-impl<T: SignalDatabase, U: WSStream<Message, axum::Error> + Debug>
-    FromRequestParts<SignalServerState<T, U>> for AuthenticatedDevice
+impl<T, U> FromRequestParts<SignalServerState<T, U>> for AuthenticatedDevice
 where
-    T: Sync + Send,
+    T: SignalDatabase,
+    U: WSStream<Message, Error> + Debug,
 {
     type Rejection = ApiError;
 

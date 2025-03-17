@@ -1,6 +1,6 @@
 use crate::{
-    database::SignalDatabase,
-    message_cache::{MessageAvailabilityListener, MessageCache},
+    availability_listener::AvailabilityListener, database::SignalDatabase,
+    message_cache::MessageCache,
 };
 use anyhow::{Ok, Result};
 use common::signalservice::Envelope;
@@ -14,8 +14,8 @@ use super::manager::Manager;
 #[derive(Debug)]
 pub struct MessagesManager<T, U>
 where
-    T: SignalDatabase + Send,
-    U: MessageAvailabilityListener + Send,
+    T: SignalDatabase,
+    U: AvailabilityListener + 'static,
 {
     db: T,
     message_cache: MessageCache<U>,
@@ -23,8 +23,8 @@ where
 
 impl<T, U> Clone for MessagesManager<T, U>
 where
-    T: SignalDatabase + Clone + Send,
-    U: MessageAvailabilityListener + Send,
+    T: SignalDatabase,
+    U: AvailabilityListener,
 {
     fn clone(&self) -> Self {
         Self {
@@ -36,8 +36,8 @@ where
 
 impl<T, U> Manager for MessagesManager<T, U>
 where
-    T: SignalDatabase + Send,
-    U: MessageAvailabilityListener + Send + 'static,
+    T: SignalDatabase,
+    U: AvailabilityListener + 'static,
 {
     fn as_any(&self) -> &dyn Any {
         self
@@ -46,8 +46,8 @@ where
 
 impl<T, U> MessagesManager<T, U>
 where
-    T: SignalDatabase + Send,
-    U: MessageAvailabilityListener + Send,
+    T: SignalDatabase,
+    U: AvailabilityListener,
 {
     pub fn new(db: T, message_cache: MessageCache<U>) -> Self {
         Self { db, message_cache }
@@ -148,8 +148,8 @@ where
 
 impl<T, U> MessagesManager<T, U>
 where
-    T: SignalDatabase + Send,
-    U: MessageAvailabilityListener + Send,
+    T: SignalDatabase,
+    U: AvailabilityListener,
 {
     async fn has_messages(&self, address: &ProtocolAddress) -> Result<bool> {
         Ok(self.db.count_messages(address).await? > 0)

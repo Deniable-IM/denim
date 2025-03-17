@@ -1,28 +1,27 @@
-use crate::managers::manager::Manager;
 #[cfg(test)]
 use crate::test_utils::random_string;
+use crate::{availability_listener::AvailabilityListener, managers::manager::Manager};
 use anyhow::Result;
 use common::signalservice::Envelope;
 use deadpool_redis::{redis::cmd, Config, Connection, Runtime};
 use libsignal_core::ProtocolAddress;
 use std::{
-    any::Any, collections::HashMap, sync::Arc, time::{SystemTime, UNIX_EPOCH}
+    any::Any,
+    collections::HashMap,
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::Mutex;
 
 const PAGE_SIZE: u32 = 100;
 
-#[async_trait::async_trait]
-pub trait MessageAvailabilityListener {
-    async fn handle_new_messages_available(&mut self) -> bool;
-
-    async fn handle_messages_persisted(&mut self) -> bool;
-}
-
 type ListenerMap<T> = Arc<Mutex<HashMap<String, Arc<Mutex<T>>>>>;
 
 #[derive(Debug)]
-pub struct MessageCache<T: MessageAvailabilityListener> {
+pub struct MessageCache<T>
+where
+    T: AvailabilityListener,
+{
     pool: deadpool_redis::Pool,
     listeners: ListenerMap<T>,
     #[cfg(test)]
@@ -31,7 +30,7 @@ pub struct MessageCache<T: MessageAvailabilityListener> {
 
 impl<T> Manager for MessageCache<T>
 where
-    T: MessageAvailabilityListener + 'static,
+    T: AvailabilityListener + 'static,
 {
     fn as_any(&self) -> &dyn Any {
         self
@@ -40,7 +39,7 @@ where
 
 impl<T> Clone for MessageCache<T>
 where
-    T: MessageAvailabilityListener,
+    T: AvailabilityListener,
 {
     fn clone(&self) -> Self {
         #[cfg(not(test))]
@@ -57,7 +56,10 @@ where
     }
 }
 
-impl<T: MessageAvailabilityListener> MessageCache<T> {
+impl<T> MessageCache<T>
+where
+    T: AvailabilityListener,
+{
     pub fn connect() -> Self {
         let _ = dotenv::dotenv();
         let redis_url = std::env::var("REDIS_URL").expect("Unable to read REDIS_URL .env var");
@@ -161,7 +163,7 @@ impl<T: MessageAvailabilityListener> MessageCache<T> {
         // notifies the message availability manager
         let queue_name = format!("{}::{}", address.name(), address.device_id());
         if let Some(listener) = self.listeners.lock().await.get(&queue_name) {
-            listener.lock().await.handle_new_messages_available().await;
+            listener.lock().await.send_cached().await;
         }
 
         Ok(message_id)
@@ -256,7 +258,7 @@ impl<T: MessageAvailabilityListener> MessageCache<T> {
             .await?;
         let queue_name = format!("{}::{}", address.name(), address.device_id());
         if let Some(listener) = self.listeners.lock().await.get(&queue_name) {
-            listener.lock().await.handle_new_messages_available().await;
+            listener.lock().await.send_cached().await;
         }
 
         Ok(msg_count > 0)
@@ -386,7 +388,7 @@ impl<T: MessageAvailabilityListener> MessageCache<T> {
 
         let queue_name = format!("{}::{}", address.name(), address.device_id());
         if let Some(listener) = self.listeners.lock().await.get(&queue_name) {
-            listener.lock().await.handle_messages_persisted().await;
+            listener.lock().await.send_persisted().await;
         }
 
         Ok(())

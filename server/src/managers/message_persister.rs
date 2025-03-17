@@ -1,8 +1,9 @@
 use crate::{
     account::{Account, Device},
+    availability_listener::AvailabilityListener,
     database::SignalDatabase,
     managers::{account_manager::AccountManager, messages_manager::MessagesManager},
-    message_cache::{MessageAvailabilityListener, MessageCache},
+    message_cache::MessageCache,
     persister::{Persister, RunFlag},
 };
 use anyhow::{anyhow, Result};
@@ -22,7 +23,11 @@ const MESSAGE_BATCH_LIMIT: u8 = 100;
 const PERSIST_DELAY: u64 = 600;
 
 #[derive(Debug)]
-pub struct MessagePersister<T: SignalDatabase, U: MessageAvailabilityListener + Send> {
+pub struct MessagePersister<T, U>
+where
+    T: SignalDatabase,
+    U: AvailabilityListener + 'static,
+{
     run_flag: RunFlag,
     message_cache: MessageCache<U>,
     messages_manager: MessagesManager<T, U>,
@@ -32,8 +37,8 @@ pub struct MessagePersister<T: SignalDatabase, U: MessageAvailabilityListener + 
 
 impl<T, U> Clone for MessagePersister<T, U>
 where
-    T: SignalDatabase + Send + 'static + Sync,
-    U: MessageAvailabilityListener + Send + 'static,
+    T: SignalDatabase,
+    U: AvailabilityListener,
 {
     fn clone(&self) -> Self {
         Self {
@@ -52,8 +57,8 @@ where
 */
 impl<T, U> Persister<T, U> for MessagePersister<T, U>
 where
-    T: SignalDatabase + Send + 'static + Sync,
-    U: MessageAvailabilityListener + Send + 'static,
+    T: SignalDatabase,
+    U: AvailabilityListener + 'static,
 {
     type Manager = Vec<Box<dyn Manager>>;
 
@@ -135,8 +140,8 @@ where
 
 impl<T, U> MessagePersister<T, U>
 where
-    T: SignalDatabase + Send + 'static + Sync,
-    U: MessageAvailabilityListener + Send + 'static,
+    T: SignalDatabase,
+    U: AvailabilityListener,
 {
     /// Takes the message queues where the oldest message is >10 minutes old.
     async fn persist_queue(&mut self, account: &Account, device: &Device) -> Result<()> {
@@ -173,7 +178,7 @@ mod message_persister_tests {
     use crate::{
         database::SignalDatabase,
         managers::{account_manager::AccountManager, messages_manager::MessagesManager},
-        message_cache::{self, MessageCache},
+        message_cache::MessageCache,
         persister::Persister,
         postgres::PostgresDatabase,
         test_utils::{
