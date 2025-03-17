@@ -1,3 +1,5 @@
+use super::query::CheckKeysRequest;
+use super::response::{LinkDeviceResponse, LinkDeviceToken, SendMessageResponse};
 use crate::{
     account::{Account, AuthenticatedDevice, Device},
     account_authenticator::SaltedTokenHash,
@@ -14,14 +16,11 @@ use crate::{
     },
     persisters::{message_persister::MessagePersister, persister::Persister},
     postgres::PostgresDatabase,
-    query::CheckKeysRequest,
-    response::{LinkDeviceResponse, LinkDeviceToken, SendMessageResponse},
     validators::{
         destination_device_validator::DestinationDeviceValidator,
         pre_key_signature_validator::PreKeySignatureValidator,
     },
 };
-
 use anyhow::Result;
 use axum::{
     debug_handler,
