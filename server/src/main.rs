@@ -2,14 +2,14 @@ use std::env;
 
 mod account;
 mod account_authenticator;
+mod availability_listener;
+mod chunk_cache;
 pub mod database;
 mod envelope;
 mod error;
 pub mod managers;
 mod message_cache;
-mod chunk_cache;
-mod availability_listener;
-mod persister;
+mod persisters;
 mod postgres;
 mod query;
 mod response;

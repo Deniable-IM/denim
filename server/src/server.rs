@@ -1,16 +1,27 @@
 use crate::{
-    account::{Account, AuthenticatedDevice, Device}, account_authenticator::SaltedTokenHash, availability_listener::AvailabilityListener, database::SignalDatabase, envelope::ToEnvelope, error::ApiError, managers::{
-        message_persister::MessagePersister,
+    account::{Account, AuthenticatedDevice, Device},
+    account_authenticator::SaltedTokenHash,
+    availability_listener::AvailabilityListener,
+    database::SignalDatabase,
+    envelope::ToEnvelope,
+    error::ApiError,
+    managers::{
         state::SignalServerState,
         websocket::{
             connection::{UserIdentity, WebSocketConnection},
             signal_websocket::SignalWebSocket,
         },
-    }, persister::Persister, postgres::PostgresDatabase, query::CheckKeysRequest, response::{LinkDeviceResponse, LinkDeviceToken, SendMessageResponse}, validators::{
+    },
+    persisters::{message_persister::MessagePersister, persister::Persister},
+    postgres::PostgresDatabase,
+    query::CheckKeysRequest,
+    response::{LinkDeviceResponse, LinkDeviceToken, SendMessageResponse},
+    validators::{
         destination_device_validator::DestinationDeviceValidator,
         pre_key_signature_validator::PreKeySignatureValidator,
-    }
+    },
 };
+
 use anyhow::Result;
 use axum::{
     debug_handler,
@@ -729,11 +740,7 @@ async fn create_websocket_endpoint(
             };
 
             // Send all persisted message to new connected device
-            websocket_manager
-                .lock()
-                .await
-                .send_persisted()
-                .await;
+            websocket_manager.lock().await.send_persisted().await;
 
             state
                 .message_manager
