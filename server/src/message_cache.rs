@@ -1,3 +1,4 @@
+use crate::managers::manager::Manager;
 #[cfg(test)]
 use crate::test_utils::random_string;
 use anyhow::Result;
@@ -5,9 +6,7 @@ use common::signalservice::Envelope;
 use deadpool_redis::{redis::cmd, Config, Connection, Runtime};
 use libsignal_core::ProtocolAddress;
 use std::{
-    collections::HashMap,
-    sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
+    any::Any, collections::HashMap, sync::Arc, time::{SystemTime, UNIX_EPOCH}
 };
 use tokio::sync::Mutex;
 
@@ -28,6 +27,15 @@ pub struct MessageCache<T: MessageAvailabilityListener> {
     listeners: ListenerMap<T>,
     #[cfg(test)]
     pub test_key: String,
+}
+
+impl<T> Manager for MessageCache<T>
+where
+    T: MessageAvailabilityListener + 'static,
+{
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 impl<T> Clone for MessageCache<T>

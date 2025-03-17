@@ -5,9 +5,11 @@ use crate::{
 use anyhow::{Ok, Result};
 use common::signalservice::Envelope;
 use libsignal_core::ProtocolAddress;
-use std::sync::Arc;
+use std::{any::Any, sync::Arc};
 use tokio::sync::Mutex;
 use uuid::Uuid;
+
+use super::manager::Manager;
 
 #[derive(Debug)]
 pub struct MessagesManager<T, U>
@@ -29,6 +31,16 @@ where
             db: self.db.clone(),
             message_cache: self.message_cache.clone(),
         }
+    }
+}
+
+impl<T, U> Manager for MessagesManager<T, U>
+where
+    T: SignalDatabase + Send,
+    U: MessageAvailabilityListener + Send + 'static,
+{
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 

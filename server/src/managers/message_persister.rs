@@ -3,6 +3,7 @@ use crate::{
     database::SignalDatabase,
     managers::{account_manager::AccountManager, messages_manager::MessagesManager},
     message_cache::{MessageAvailabilityListener, MessageCache},
+    persister::{Persister, RunFlag},
 };
 use anyhow::{anyhow, Result};
 use libsignal_core::{ProtocolAddress, ServiceId};
@@ -14,13 +15,15 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use super::manager::{self, Manager};
+
 const QUEUE_BATCH_LIMIT: u8 = 100;
 const MESSAGE_BATCH_LIMIT: u8 = 100;
 const PERSIST_DELAY: u64 = 600;
 
 #[derive(Debug)]
 pub struct MessagePersister<T: SignalDatabase, U: MessageAvailabilityListener + Send> {
-    run_flag: Arc<AtomicBool>,
+    run_flag: RunFlag,
     message_cache: MessageCache<U>,
     messages_manager: MessagesManager<T, U>,
     account_manager: AccountManager<T>,
@@ -47,17 +50,22 @@ where
  * Takes the message queues from the cache that is >10 minutes old,
  * removes them from the cache and puts them into the database using the MessagesManager
 */
-impl<T, U> MessagePersister<T, U>
+impl<T, U> Persister<T, U> for MessagePersister<T, U>
 where
     T: SignalDatabase + Send + 'static + Sync,
     U: MessageAvailabilityListener + Send + 'static,
 {
-    pub fn start(
-        messages_manager: MessagesManager<T, U>,
-        message_cache: MessageCache<U>,
-        db: T,
-        account_manager: AccountManager<T>,
-    ) -> MessagePersister<T, U> {
+    type Manager = Vec<Box<dyn Manager>>;
+
+    fn listen(db: T, managers: Self::Manager) -> MessagePersister<T, U> {
+        let messages_manager = manager::get::<MessagesManager<T, U>>(&managers)
+            .unwrap()
+            .clone();
+        let account_manager = manager::get::<AccountManager<T>>(&managers)
+            .unwrap()
+            .clone();
+        let message_cache = manager::get::<MessageCache<U>>(&managers).unwrap().clone();
+
         let mut message_persister = MessagePersister {
             run_flag: Arc::new(AtomicBool::new(true)),
             message_cache,
@@ -70,19 +78,19 @@ where
 
         tokio::spawn(async move {
             while message_persister.run_flag.load(Ordering::Relaxed) {
-                let _ = message_persister.persist_next_queues().await;
+                let _ = message_persister.persist().await;
                 tokio::time::sleep(Duration::from_millis(100)).await;
             }
         });
         message_persister_clone
     }
 
-    pub async fn stop(&self) {
-        self.run_flag.store(false, Ordering::Relaxed);
+    fn get_run_flag(&self) -> &RunFlag {
+        &self.run_flag
     }
 
     // Finds the message queues where the oldest message is >10 minutes old.
-    async fn persist_next_queues(&mut self) -> Result<()> {
+    async fn persist(&mut self) -> Result<()> {
         let mut queues_to_persist;
 
         while {
@@ -123,8 +131,14 @@ where
 
         Ok(())
     }
+}
 
-    // Takes the message queues where the oldest message is >10 minutes old.
+impl<T, U> MessagePersister<T, U>
+where
+    T: SignalDatabase + Send + 'static + Sync,
+    U: MessageAvailabilityListener + Send + 'static,
+{
+    /// Takes the message queues where the oldest message is >10 minutes old.
     async fn persist_queue(&mut self, account: &Account, device: &Device) -> Result<()> {
         let mut messages;
         let protocol_address =
@@ -159,7 +173,8 @@ mod message_persister_tests {
     use crate::{
         database::SignalDatabase,
         managers::{account_manager::AccountManager, messages_manager::MessagesManager},
-        message_cache::MessageCache,
+        message_cache::{self, MessageCache},
+        persister::Persister,
         postgres::PostgresDatabase,
         test_utils::{
             database::database_connect,
@@ -334,7 +349,14 @@ mod message_persister_tests {
         .await;
 
         let message_persister: MessagePersister<PostgresDatabase, MockWebSocketConnection> =
-            MessagePersister::start(message_manager, cache.clone(), db.clone(), account_manager);
+            MessagePersister::listen(
+                db.clone(),
+                vec![
+                    Box::new(message_manager.clone()),
+                    Box::new(cache.clone()),
+                    Box::new(account_manager.clone()),
+                ],
+            );
 
         tokio::time::sleep(Duration::from_millis(2000)).await;
 

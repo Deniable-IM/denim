@@ -7,10 +7,13 @@ use crate::{
     managers::{
         message_persister::MessagePersister,
         state::SignalServerState,
-        websocket::connection::{UserIdentity, WebSocketConnection},
-        websocket::signal_websocket::SignalWebSocket,
+        websocket::{
+            connection::{UserIdentity, WebSocketConnection},
+            signal_websocket::SignalWebSocket,
+        },
     },
     message_cache::MessageAvailabilityListener,
+    persister::Persister,
     postgres::PostgresDatabase,
     query::CheckKeysRequest,
     response::{LinkDeviceResponse, LinkDeviceToken, SendMessageResponse},
@@ -814,11 +817,23 @@ pub async fn start_server(use_tls: bool) -> Result<(), Box<dyn std::error::Error
 
     let state = SignalServerState::<PostgresDatabase, SignalWebSocket>::new().await;
 
-    let message_persister = MessagePersister::start(
-        state.message_manager.clone(),
-        state.message_cache.clone(),
+    // let message_persister = MessagePersister::start(
+    //     state.message_manager.clone(),
+    //     state.message_cache.clone(),
+    //     state.db.clone(),
+    //     state.account_manager.clone(),
+    // );
+
+    let message_persister = MessagePersister::<
+        PostgresDatabase,
+        WebSocketConnection<SignalWebSocket, PostgresDatabase>,
+    >::listen(
         state.db.clone(),
-        state.account_manager.clone(),
+        vec![
+            Box::new(state.message_manager.clone()),
+            Box::new(state.message_cache.clone()),
+            Box::new(state.account_manager.clone()),
+        ],
     );
 
     let app = Router::new()
