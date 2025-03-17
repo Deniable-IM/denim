@@ -1,6 +1,7 @@
+use super::message_cache::MessageCache;
 use crate::{
     availability_listener::AvailabilityListener, database::SignalDatabase,
-    message_cache::MessageCache,
+    managers::manager::Manager,
 };
 use anyhow::{Ok, Result};
 use common::signalservice::Envelope;
@@ -8,8 +9,6 @@ use libsignal_core::ProtocolAddress;
 use std::{any::Any, sync::Arc};
 use tokio::sync::Mutex;
 use uuid::Uuid;
-
-use super::manager::Manager;
 
 #[derive(Debug)]
 pub struct MessagesManager<T, U>
@@ -160,7 +159,6 @@ where
 pub mod message_manager_tests {
     use super::*;
     use crate::{
-        message_cache::MessageCache,
         postgres::PostgresDatabase,
         test_utils::{
             database::database_connect,

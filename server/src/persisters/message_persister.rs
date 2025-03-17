@@ -1,3 +1,4 @@
+use super::persister::{Persister, RunFlag};
 use crate::{
     account::{Account, Device},
     availability_listener::AvailabilityListener,
@@ -5,9 +6,8 @@ use crate::{
     managers::{
         account_manager::AccountManager,
         manager::{self, Manager},
-        messages_manager::MessagesManager,
+        message::{message_cache::MessageCache, messages_manager::MessagesManager},
     },
-    message_cache::MessageCache,
 };
 use anyhow::{anyhow, Result};
 use libsignal_core::{ProtocolAddress, ServiceId};
@@ -18,8 +18,6 @@ use std::{
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-
-use super::persister::{Persister, RunFlag};
 
 const QUEUE_BATCH_LIMIT: u8 = 100;
 const MESSAGE_BATCH_LIMIT: u8 = 100;
@@ -180,8 +178,7 @@ where
 mod message_persister_tests {
     use crate::{
         database::SignalDatabase,
-        managers::{account_manager::AccountManager, messages_manager::MessagesManager},
-        message_cache::MessageCache,
+        managers::{account_manager::AccountManager, message::{message_cache::MessageCache, messages_manager::MessagesManager}},
         persisters::persister::Persister,
         postgres::PostgresDatabase,
         test_utils::{

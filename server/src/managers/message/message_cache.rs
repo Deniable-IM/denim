@@ -14,7 +14,6 @@ use std::{
 use tokio::sync::Mutex;
 
 const PAGE_SIZE: u32 = 100;
-
 type ListenerMap<T> = Arc<Mutex<HashMap<String, Arc<Mutex<T>>>>>;
 
 #[derive(Debug)]

@@ -1,33 +1,45 @@
-// use common::web_api::DenimChunk;
-// use libsignal_core::ProtocolAddress;
-//
-// use crate::{
-//     chunk_cache::ChunkAvailabilityListener, database::SignalDatabase, message_cache::ChunkCache,
-// };
-//
-// pub struct DenIMManager<T, U>
-// where
-//     T: SignalDatabase + Send,
-//     U: ChunkAvailabilityListener + Send,
-// {
-//     db: T,
-//     chunk_cache: ChunkCache<U>,
-// }
-//
-// impl<T, U> DenIMManager<T, U>
-// where
-//     T: SignalDatabase + Send,
-//     U: ChunkAvailabilityListener + Send,
-// {
-//     pub fn new(db: T, chunk_cache: ChunkCache<U>) -> Self {
-//         Self { db, chunk_cache }
-//     }
-//
-//     pub async fn insert_chunk(&self, address: &ProtocolAddress, chunk: &DenimChunk) -> Result<u64> {
-//         self.chunk_cache.insert(address, chunk).await
-//     }
-// }
-//
+use super::chunk_cache::ChunkCache;
+use crate::{
+    availability_listener::AvailabilityListener, database::SignalDatabase,
+    managers::manager::Manager,
+};
+use anyhow::Result;
+use common::web_api::DenimChunk;
+use libsignal_core::ProtocolAddress;
+
+pub struct DenIMManager<T, U>
+where
+    T: SignalDatabase,
+    U: AvailabilityListener,
+{
+    db: T,
+    chunk_cache: ChunkCache<U>,
+}
+
+impl<T, U> Manager for DenIMManager<T, U>
+where
+    T: SignalDatabase,
+    U: AvailabilityListener,
+{
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+impl<T, U> DenIMManager<T, U>
+where
+    T: SignalDatabase,
+    U: AvailabilityListener,
+{
+    pub fn new(db: T, chunk_cache: ChunkCache<U>) -> Self {
+        Self { db, chunk_cache }
+    }
+
+    pub async fn insert_chunk(&self, address: &ProtocolAddress, chunk: &DenimChunk) -> Result<u64> {
+        self.chunk_cache.insert(address, chunk).await
+    }
+}
+
 // #[cfg(test)]
 // pub mod denim_manager_tests {
 //     use common::signalservice::Envelope;
@@ -59,14 +71,14 @@
 //
 //         // Cache
 //         denim_manager
-//             .message_cache
+//             .chunk_cache
 //             .insert(&address.clone(), &mut envelope, &message_guid)
 //             .await
 //             .unwrap();
 //
 //         // Act
 //         let has_messages = denim_manager
-//             .message_cache
+//             .chunk_cache
 //             .has_messages(&address)
 //             .await
 //             .unwrap();

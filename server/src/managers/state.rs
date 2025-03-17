@@ -2,12 +2,12 @@ use super::{
     account_manager::AccountManager,
     client_presence_manager::ClientPresenceManager,
     key_manager::KeyManager,
-    messages_manager::MessagesManager,
+    message::{message_cache::MessageCache, messages_manager::MessagesManager},
     websocket::{connection::WebSocketConnection, websocket_manager::WebSocketManager},
 };
 #[cfg(test)]
 use crate::test_utils::websocket::{MockDB, MockSocket};
-use crate::{database::SignalDatabase, message_cache::MessageCache, postgres::PostgresDatabase};
+use crate::{database::SignalDatabase, postgres::PostgresDatabase};
 use axum::extract::ws::Message;
 use common::websocket::wsstream::WSStream;
 use std::fmt::Debug;
