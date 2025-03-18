@@ -2,6 +2,7 @@ use super::{
     account_manager::AccountManager,
     client_presence_manager::ClientPresenceManager,
     key_manager::KeyManager,
+    manager::Manager,
     message::{message_cache::MessageCache, messages_manager::MessagesManager},
     websocket::{connection::WebSocketConnection, websocket_manager::WebSocketManager},
 };
@@ -25,6 +26,16 @@ where
     pub message_manager: MessagesManager<T, WebSocketConnection<U, T>>,
     pub client_presence_manager: ClientPresenceManager<WebSocketConnection<U, T>>,
     pub message_cache: MessageCache<WebSocketConnection<U, T>>,
+}
+
+impl<T, U> Manager for SignalServerState<T, U>
+where
+    T: SignalDatabase,
+    U: WSStream<Message, axum::Error> + Debug,
+{
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 impl<T, U> Clone for SignalServerState<T, U>

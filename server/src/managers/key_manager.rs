@@ -1,3 +1,4 @@
+use super::manager::Manager;
 use crate::{account::AuthenticatedDevice, database::SignalDatabase, error::ApiError};
 use anyhow::Result;
 use axum::http::StatusCode;
@@ -6,8 +7,20 @@ use libsignal_core::{ProtocolAddress, ServiceId, ServiceIdKind};
 use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone, Default)]
-pub struct KeyManager<T: SignalDatabase> {
+pub struct KeyManager<T>
+where
+    T: SignalDatabase,
+{
     db: T,
+}
+
+impl<T> Manager for KeyManager<T>
+where
+    T: SignalDatabase,
+{
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 impl<T: SignalDatabase> KeyManager<T> {
