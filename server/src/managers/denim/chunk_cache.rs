@@ -74,8 +74,8 @@ where
     ) -> Result<u64> {
         let connection = self.pool.get().await?;
 
-        let queue_key: String = self.get_chunk_queue_key(address);
-        let queue_metadata_key: String = self.get_chunk_queue_metadata_key(address);
+        let queue_key: String = self.get_queue_key(address);
+        let queue_metadata_key: String = self.get_queue_metadata_key(address);
         let queue_total_index_key: String = self.get_queue_index_key();
 
         let value = bincode::serialize(chunk)?;
@@ -94,8 +94,24 @@ where
         chunk_id
     }
 
-    pub async fn remove(&self, address: &ProtocolAddress, chunk_guids: Vec<String>) {
-        redis::remove();
+    pub async fn remove(
+        &self,
+        address: &ProtocolAddress,
+        chunk_guids: Vec<String>,
+    ) -> Result<Vec<DenimChunk>> {
+        let connection = self.pool.get().await?;
+        let queue_key: String = self.get_queue_key(address);
+        let queue_metadata_key: String = self.get_queue_metadata_key(address);
+        let queue_total_index_key: String = self.get_queue_index_key();
+
+        redis::remove(
+            connection,
+            queue_key,
+            queue_metadata_key,
+            queue_total_index_key,
+            chunk_guids,
+        )
+        .await
     }
 
     pub async fn add_availability_listener(
@@ -110,7 +126,7 @@ where
         remove(self.listeners.clone(), address).await;
     }
 
-    fn get_chunk_queue_key(&self, address: &ProtocolAddress) -> String {
+    fn get_queue_key(&self, address: &ProtocolAddress) -> String {
         #[cfg(not(test))]
         return format!(
             "chunk_queue::{{{}::{}}}",
@@ -126,7 +142,7 @@ where
         )
     }
 
-    fn get_chunk_queue_metadata_key(&self, address: &ProtocolAddress) -> String {
+    fn get_queue_metadata_key(&self, address: &ProtocolAddress) -> String {
         #[cfg(not(test))]
         return format!(
             "chunk_queue_metadata::{{{}::{}}}",
@@ -195,7 +211,7 @@ pub mod chunk_cache_tests {
             .unwrap();
 
         let result = cmd("ZRANGEBYSCORE")
-            .arg(chunk_cache.get_chunk_queue_key(&address))
+            .arg(chunk_cache.get_queue_key(&address))
             .arg(chunk_id)
             .arg(chunk_id)
             .query_async::<Vec<Vec<u8>>>(&mut connection)
@@ -206,5 +222,29 @@ pub mod chunk_cache_tests {
 
         let result = bincode::deserialize::<DenimChunk>(&result[0]).unwrap();
         assert_eq!(chunk, result);
+    }
+
+    #[tokio::test]
+    async fn test_remove() {
+        let chunk_cache: ChunkCache<MockWebSocketConnection> = ChunkCache::connect();
+        let connection = chunk_cache.pool.get().await.unwrap();
+        let address = new_protocol_address();
+        let chunk_guid = generate_uuid();
+        let mut envelope = generate_chunk();
+
+        chunk_cache
+            .insert(&address, &mut envelope, &chunk_guid)
+            .await
+            .unwrap();
+
+        let removed_chunks = chunk_cache
+            .remove(&address, vec![chunk_guid])
+            .await
+            .unwrap();
+
+        teardown(&chunk_cache.test_key, connection).await;
+
+        assert_eq!(removed_chunks.len(), 1);
+        assert_eq!(removed_chunks[0], envelope);
     }
 }
