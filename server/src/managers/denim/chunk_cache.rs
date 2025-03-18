@@ -1,9 +1,16 @@
-#[cfg(test)]
-use crate::test_utils::random_string;
-use crate::{availability_listener::AvailabilityListener, managers::manager::Manager};
+use crate::{
+    availability_listener::{add, notify_cached, remove, AvailabilityListener},
+    managers::{
+        manager::Manager,
+        message::{
+            message_cache::{self, MessageCache},
+            redis::{self},
+        },
+    },
+};
 use anyhow::Result;
 use common::web_api::DenimChunk;
-use deadpool_redis::{Config, Connection, Runtime};
+use deadpool_redis::Connection;
 use libsignal_core::ProtocolAddress;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::Mutex;
@@ -11,12 +18,9 @@ use tokio::sync::Mutex;
 type ListenerMap<T> = Arc<Mutex<HashMap<String, Arc<Mutex<T>>>>>;
 
 #[derive(Debug)]
-pub struct ChunkCache<T>
-where
-    T: AvailabilityListener,
-{
-    pool: deadpool_redis::Pool,
-    listeners: ListenerMap<T>,
+pub struct ChunkCache<T> {
+    pub(crate) pool: deadpool_redis::Pool,
+    pub(crate) listeners: ListenerMap<T>,
     #[cfg(test)]
     pub test_key: String,
 }
@@ -30,112 +34,177 @@ where
     }
 }
 
+impl<T> From<MessageCache<T>> for ChunkCache<T>
+where
+    T: AvailabilityListener,
+{
+    fn from(cache: MessageCache<T>) -> Self {
+        #[cfg(not(test))]
+        return Self {
+            pool: cache.pool.clone(),
+            listeners: cache.listeners.clone(),
+        };
+
+        #[cfg(test)]
+        Self {
+            pool: cache.pool.clone(),
+            listeners: cache.listeners.clone(),
+            test_key: cache.test_key.clone(),
+        }
+    }
+}
+
 impl<T> ChunkCache<T>
 where
     T: AvailabilityListener,
 {
     pub fn connect() -> Self {
-        let _ = dotenv::dotenv();
-        let redis_url = std::env::var("REDIS_URL").expect("Unable to read REDIS_URL .env var");
-        let redis_config = Config::from_url(redis_url);
-        let redis_pool: deadpool_redis::Pool = redis_config
-            .create_pool(Some(Runtime::Tokio1))
-            .expect("Failed to create connection pool");
-        #[cfg(not(test))]
-        return Self {
-            pool: redis_pool,
-            listeners: Arc::new(Mutex::new(HashMap::new())),
-        };
-        #[cfg(test)]
-        Self {
-            pool: redis_pool,
-            listeners: Arc::new(Mutex::new(HashMap::new())),
-            test_key: random_string(8),
-        }
+        message_cache::MessageCache::<T>::connect().into()
     }
 
     pub async fn get_connection(&self) -> Result<Connection> {
         Ok(self.pool.get().await?)
     }
 
-    pub async fn insert(&self, address: &ProtocolAddress, chunk: &DenimChunk) -> Result<u64> {
-        Ok(1337)
-        // let mut connection = self.pool.get().await?;
-        //
-        // let queue_key: String = self.get_message_queue_key(address);
-        // let queue_metadata_key: String = self.get_message_queue_metadata_key(address);
-        // let queue_total_index_key: String = self.get_queue_index_key();
-        //
-        // envelope.server_guid = Some(message_guid.to_string());
-        // let data = bincode::serialize(&envelope)?;
-        //
-        // let message_guid_exists = cmd("HEXISTS")
-        //     .arg(&queue_metadata_key)
-        //     .arg(message_guid)
-        //     .query_async::<u8>(&mut connection)
-        //     .await?;
-        //
-        // if message_guid_exists == 1 {
-        //     let num = cmd("HGET")
-        //         .arg(&queue_metadata_key)
-        //         .arg(message_guid)
-        //         .query_async::<String>(&mut connection)
-        //         .await?;
-        //
-        //     return Ok(num.parse().expect("Could not parse redis id"));
-        // }
-        //
-        // let message_id = cmd("HINCRBY")
-        //     .arg(&queue_metadata_key)
-        //     .arg("counter")
-        //     .arg(1)
-        //     .query_async::<u64>(&mut connection)
-        //     .await?;
-        //
-        // cmd("ZADD")
-        //     .arg(&queue_key)
-        //     .arg("NX")
-        //     .arg(message_id)
-        //     .arg(&data)
-        //     .query_async::<()>(&mut connection)
-        //     .await?;
-        //
-        // cmd("HSET")
-        //     .arg(&queue_metadata_key)
-        //     .arg(message_guid)
-        //     .arg(message_id)
-        //     .query_async::<()>(&mut connection)
-        //     .await?;
-        //
-        // cmd("EXPIRE")
-        //     .arg(&queue_key)
-        //     .arg(2678400)
-        //     .query_async::<()>(&mut connection)
-        //     .await?;
-        //
-        // cmd("EXPIRE")
-        //     .arg(&queue_metadata_key)
-        //     .arg(2678400)
-        //     .query_async::<()>(&mut connection)
-        //     .await?;
-        //
-        // let time = SystemTime::now();
-        // let time_in_millis: u64 = time.duration_since(UNIX_EPOCH)?.as_secs();
-        //
-        // cmd("ZADD")
-        //     .arg(&queue_total_index_key)
-        //     .arg("NX")
-        //     .arg(time_in_millis)
-        //     .arg(&queue_key)
-        //     .query_async::<()>(&mut connection)
-        //     .await?;
-        //
-        // // notifies the message availability manager
-        // let queue_name = format!("{}::{}", address.name(), address.device_id());
-        // if let Some(listener) = self.listeners.lock().await.get(&queue_name) {
-        //     listener.lock().await.handle_new_messages_available().await;
-        // }
-        //
-        // Ok(message_id)
+    pub async fn insert(
+        &self,
+        address: &ProtocolAddress,
+        chunk: &DenimChunk,
+        chunk_guids: &str,
+    ) -> Result<u64> {
+        let connection = self.pool.get().await?;
+
+        let queue_key: String = self.get_chunk_queue_key(address);
+        let queue_metadata_key: String = self.get_chunk_queue_metadata_key(address);
+        let queue_total_index_key: String = self.get_queue_index_key();
+
+        let value = bincode::serialize(chunk)?;
+
+        let chunk_id = redis::insert(
+            connection,
+            queue_key,
+            queue_metadata_key,
+            queue_total_index_key,
+            chunk_guids,
+            value,
+        )
+        .await;
+
+        notify_cached(self.listeners.clone(), address).await;
+        chunk_id
+    }
+
+    pub async fn remove(&self, address: &ProtocolAddress, chunk_guids: Vec<String>) {
+        redis::remove();
+    }
+
+    pub async fn add_availability_listener(
+        &mut self,
+        address: &ProtocolAddress,
+        listener: Arc<Mutex<T>>,
+    ) {
+        add(self.listeners.clone(), address, listener).await;
+    }
+
+    pub async fn remove_availability_listener(&mut self, address: &ProtocolAddress) {
+        remove(self.listeners.clone(), address).await;
+    }
+
+    fn get_chunk_queue_key(&self, address: &ProtocolAddress) -> String {
+        #[cfg(not(test))]
+        return format!(
+            "chunk_queue::{{{}::{}}}",
+            address.name(),
+            address.device_id()
+        );
+        #[cfg(test)]
+        format!(
+            "{}chunk_queue::{{{}::{}}}",
+            self.test_key,
+            address.name(),
+            address.device_id()
+        )
+    }
+
+    fn get_chunk_queue_metadata_key(&self, address: &ProtocolAddress) -> String {
+        #[cfg(not(test))]
+        return format!(
+            "chunk_queue_metadata::{{{}::{}}}",
+            address.name(),
+            address.device_id()
+        );
+        #[cfg(test)]
+        format!(
+            "{}chunk_queue_metadata::{{{}::{}}}",
+            self.test_key,
+            address.name(),
+            address.device_id()
+        )
+    }
+
+    fn get_queue_index_key(&self) -> String {
+        #[cfg(not(test))]
+        return "chunk_queue_index_key".to_string();
+        #[cfg(test)]
+        format!("{}chunk_queue_index_key", self.test_key)
+    }
+}
+
+#[cfg(test)]
+pub mod chunk_cache_tests {
+    use super::*;
+    use crate::test_utils::{
+        message_cache::{generate_chunk, generate_uuid, teardown, MockWebSocketConnection},
+        user::new_protocol_address,
+    };
+    use ::redis::cmd;
+
+    #[tokio::test]
+    async fn test_availability_listener_new_messages() {
+        let mut chunk_cache: ChunkCache<MockWebSocketConnection> = ChunkCache::connect();
+        let websocket = Arc::new(Mutex::new(MockWebSocketConnection::new()));
+        let uuid = generate_uuid();
+        let address = new_protocol_address();
+
+        let mut chunk = generate_chunk();
+
+        chunk_cache
+            .add_availability_listener(&address, websocket.clone())
+            .await;
+
+        chunk_cache
+            .insert(&address, &mut chunk, &uuid)
+            .await
+            .unwrap();
+
+        assert!(websocket.lock().await.evoked_handle_new_messages);
+    }
+
+    #[tokio::test]
+    async fn test_insert() {
+        let chunk_cache: ChunkCache<MockWebSocketConnection> = ChunkCache::connect();
+        let mut connection = chunk_cache.pool.get().await.unwrap();
+        let address = new_protocol_address();
+        let chunk_guid = generate_uuid();
+
+        let mut chunk = generate_chunk();
+
+        let chunk_id = chunk_cache
+            .insert(&address, &mut chunk, &chunk_guid)
+            .await
+            .unwrap();
+
+        let result = cmd("ZRANGEBYSCORE")
+            .arg(chunk_cache.get_chunk_queue_key(&address))
+            .arg(chunk_id)
+            .arg(chunk_id)
+            .query_async::<Vec<Vec<u8>>>(&mut connection)
+            .await
+            .unwrap();
+
+        teardown(&chunk_cache.test_key, connection).await;
+
+        let result = bincode::deserialize::<DenimChunk>(&result[0]).unwrap();
+        assert_eq!(chunk, result);
     }
 }
