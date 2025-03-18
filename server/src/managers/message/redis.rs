@@ -8,19 +8,19 @@ pub(crate) async fn insert(
     queue_key: String,
     queue_metadata_key: String,
     queue_total_index_key: String,
-    field: &str,
+    field_guid: &str,
     value: Vec<u8>,
 ) -> Result<u64> {
     let message_guid_exists = cmd("HEXISTS")
         .arg(&queue_metadata_key)
-        .arg(field)
+        .arg(field_guid)
         .query_async::<u8>(&mut connection)
         .await?;
 
     if message_guid_exists == 1 {
         let num = cmd("HGET")
             .arg(&queue_metadata_key)
-            .arg(field)
+            .arg(field_guid)
             .query_async::<String>(&mut connection)
             .await?;
 
@@ -47,7 +47,7 @@ pub(crate) async fn insert(
     #[rustfmt::skip]
     cmd("HSET")
         .arg(&queue_metadata_key)  // key (hash)
-        .arg(field)                // field
+        .arg(field_guid)                // field
         .arg(value_id)             // value
         .query_async::<()>(&mut connection)
         .await?;
@@ -80,6 +80,81 @@ pub(crate) async fn insert(
     Ok(value_id)
 }
 
-pub(crate) fn remove() {
-    return;
+pub(crate) async fn remove<T>(
+    mut connection: Connection,
+    queue_key: String,
+    queue_metadata_key: String,
+    queue_total_index_key: String,
+    field_guids: Vec<String>,
+) -> Result<Vec<T>>
+where
+    T: serde::de::DeserializeOwned,
+{
+    let mut removed_values = Vec::new();
+
+    for guid in field_guids {
+        let message_id: Option<String> = cmd("HGET")
+            .arg(&queue_metadata_key)
+            .arg(&guid)
+            .query_async(&mut connection)
+            .await?;
+
+        if let Some(msg_id) = message_id.clone() {
+            // retrieving the message
+            let envelope = cmd("ZRANGE")
+                .arg(&queue_key)
+                .arg(&msg_id)
+                .arg(&msg_id)
+                .arg("BYSCORE")
+                .arg("LIMIT")
+                .arg(0)
+                .arg(1)
+                .query_async::<Option<Vec<Vec<u8>>>>(&mut connection)
+                .await?;
+
+            // delete the message
+            cmd("ZREMRANGEBYSCORE")
+                .arg(&queue_key)
+                .arg(&msg_id)
+                .arg(&msg_id)
+                .query_async::<()>(&mut connection)
+                .await?;
+
+            // delete the guid from the cache
+            cmd("HDEL")
+                .arg(&queue_metadata_key)
+                .arg(&guid)
+                .query_async::<()>(&mut connection)
+                .await?;
+
+            if let Some(envel) = envelope {
+                removed_values.push(bincode::deserialize(&envel[0])?);
+            }
+        }
+    }
+
+    if cmd("ZCARD")
+        .arg(&queue_key)
+        .query_async::<u64>(&mut connection)
+        .await?
+        == 0
+    {
+        cmd("DEL")
+            .arg(&queue_key)
+            .query_async::<()>(&mut connection)
+            .await?;
+
+        cmd("DEL")
+            .arg(&queue_metadata_key)
+            .query_async::<()>(&mut connection)
+            .await?;
+
+        cmd("ZREM")
+            .arg(&queue_total_index_key)
+            .arg(&queue_key)
+            .query_async::<()>(&mut connection)
+            .await?;
+    }
+
+    Ok(removed_values)
 }

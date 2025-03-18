@@ -91,7 +91,6 @@ where
         message_guid: &str,
     ) -> Result<u64> {
         let connection = self.pool.get().await?;
-
         let queue_key: String = self.get_message_queue_key(address);
         let queue_metadata_key: String = self.get_message_queue_metadata_key(address);
         let queue_total_index_key: String = self.get_queue_index_key();
@@ -118,79 +117,19 @@ where
         address: &ProtocolAddress,
         message_guids: Vec<String>,
     ) -> Result<Vec<Envelope>> {
-        let mut connection = self.pool.get().await?;
-
+        let connection = self.pool.get().await?;
         let queue_key: String = self.get_message_queue_key(address);
         let queue_metadata_key: String = self.get_message_queue_metadata_key(address);
         let queue_total_index_key: String = self.get_queue_index_key();
 
-        let mut removed_messages: Vec<Envelope> = Vec::new();
-
-        for guid in message_guids {
-            let message_id: Option<String> = cmd("HGET")
-                .arg(&queue_metadata_key)
-                .arg(&guid)
-                .query_async(&mut connection)
-                .await?;
-
-            if let Some(msg_id) = message_id.clone() {
-                // retrieving the message
-                let envelope = cmd("ZRANGE")
-                    .arg(&queue_key)
-                    .arg(&msg_id)
-                    .arg(&msg_id)
-                    .arg("BYSCORE")
-                    .arg("LIMIT")
-                    .arg(0)
-                    .arg(1)
-                    .query_async::<Option<Vec<Vec<u8>>>>(&mut connection)
-                    .await?;
-
-                // delete the message
-                cmd("ZREMRANGEBYSCORE")
-                    .arg(&queue_key)
-                    .arg(&msg_id)
-                    .arg(&msg_id)
-                    .query_async::<()>(&mut connection)
-                    .await?;
-
-                // delete the guid from the cache
-                cmd("HDEL")
-                    .arg(&queue_metadata_key)
-                    .arg(&guid)
-                    .query_async::<()>(&mut connection)
-                    .await?;
-
-                if let Some(envel) = envelope {
-                    removed_messages.push(bincode::deserialize(&envel[0])?);
-                }
-            }
-        }
-
-        if cmd("ZCARD")
-            .arg(&queue_key)
-            .query_async::<u64>(&mut connection)
-            .await?
-            == 0
-        {
-            cmd("DEL")
-                .arg(&queue_key)
-                .query_async::<()>(&mut connection)
-                .await?;
-
-            cmd("DEL")
-                .arg(&queue_metadata_key)
-                .query_async::<()>(&mut connection)
-                .await?;
-
-            cmd("ZREM")
-                .arg(&queue_total_index_key)
-                .arg(&queue_key)
-                .query_async::<()>(&mut connection)
-                .await?;
-        }
-
-        Ok(removed_messages)
+        redis::remove(
+            connection,
+            queue_key,
+            queue_metadata_key,
+            queue_total_index_key,
+            message_guids,
+        )
+        .await
     }
 
     pub async fn has_messages(&self, address: &ProtocolAddress) -> Result<bool> {
