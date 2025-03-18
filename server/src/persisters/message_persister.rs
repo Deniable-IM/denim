@@ -178,7 +178,10 @@ where
 mod message_persister_tests {
     use crate::{
         database::SignalDatabase,
-        managers::{account_manager::AccountManager, message::{message_cache::MessageCache, messages_manager::MessagesManager}},
+        managers::{
+            account_manager::AccountManager,
+            message::{message_cache::MessageCache, messages_manager::MessagesManager},
+        },
         persisters::persister::Persister,
         postgres::PostgresDatabase,
         test_utils::{
