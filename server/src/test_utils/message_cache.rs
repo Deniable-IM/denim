@@ -1,5 +1,5 @@
 use crate::availability_listener::AvailabilityListener;
-use common::signalservice::Envelope;
+use common::{signalservice::Envelope, web_api::DenimChunk};
 use redis::cmd;
 use uuid::Uuid;
 
@@ -38,6 +38,12 @@ pub async fn teardown(key: &str, mut con: deadpool_redis::Connection) {
 pub fn generate_envelope(uuid: &str) -> Envelope {
     Envelope {
         server_guid: Some(uuid.to_string()),
+        ..Default::default()
+    }
+}
+
+pub fn generate_chunk() -> DenimChunk {
+    DenimChunk {
         ..Default::default()
     }
 }

@@ -326,7 +326,7 @@ pub struct DenimMessage {
     pub extra_ballast: Option<i32>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct DenimChunk {
     pub chunk: Vec<u8>,
