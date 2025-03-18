@@ -1,7 +1,10 @@
+use crate::managers::message::redis::{self};
 #[cfg(test)]
 use crate::test_utils::random_string;
 use crate::{
-    availability_listener::{notify_cached, notify_persisted, AvailabilityListener, ListenerMap},
+    availability_listener::{
+        add, notify_cached, notify_persisted, remove, AvailabilityListener, ListenerMap,
+    },
     managers::manager::Manager,
 };
 use anyhow::Result;
@@ -11,7 +14,6 @@ use libsignal_core::ProtocolAddress;
 use std::{any::Any, collections::HashMap, sync::Arc};
 use tokio::sync::Mutex;
 
-use crate::managers::message::redis::{self};
 const PAGE_SIZE: u32 = 100;
 
 #[derive(Debug)]
@@ -396,13 +398,11 @@ where
         address: &ProtocolAddress,
         listener: Arc<Mutex<T>>,
     ) {
-        let queue_name = format!("{}::{}", address.name(), address.device_id());
-        self.listeners.lock().await.insert(queue_name, listener);
+        add(self.listeners.clone(), address, listener).await;
     }
 
     pub async fn remove_message_availability_listener(&mut self, address: &ProtocolAddress) {
-        let queue_name: String = format!("{}::{}", address.name(), address.device_id());
-        self.listeners.lock().await.remove(&queue_name);
+        remove(self.listeners.clone(), address).await
     }
 }
 
@@ -562,7 +562,6 @@ pub mod message_cache_tests {
     }
 
     #[tokio::test]
-
     async fn test_remove() {
         let message_cache: MessageCache<MockWebSocketConnection> = MessageCache::connect();
         let connection = message_cache.pool.get().await.unwrap();
@@ -587,7 +586,6 @@ pub mod message_cache_tests {
     }
 
     #[tokio::test]
-
     async fn test_get_all_messages() {
         let message_cache: MessageCache<MockWebSocketConnection> = MessageCache::connect();
         let connection = message_cache.pool.get().await.unwrap();
@@ -644,7 +642,6 @@ pub mod message_cache_tests {
     }
 
     #[tokio::test]
-
     async fn test_get_messages_to_persist() {
         let message_cache: MessageCache<MockWebSocketConnection> = MessageCache::connect();
         let connection = message_cache.pool.get().await.unwrap();
