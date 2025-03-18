@@ -3,7 +3,7 @@ use crate::{
     availability_listener::AvailabilityListener,
     database::SignalDatabase,
     managers::{client_presence_manager::DisplacedPresenceListener, state::SignalServerState},
-    server::{handle_keepalive, handle_put_messages},
+    signal_server::{handle_keepalive, handle_put_messages},
 };
 use axum::Error;
 use axum::{
