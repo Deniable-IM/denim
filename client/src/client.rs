@@ -323,8 +323,7 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
                     chunks: Vec::new(), //ADD DENIABLE CHUNKS HERE
                     counter: None,
                     q: None,
-                    ballast: 0,
-                    extra_ballast: None,
+                    ballast: Vec::new(),
                 })
                 .collect(),
             online: true,

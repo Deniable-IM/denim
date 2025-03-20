@@ -137,8 +137,7 @@ impl<W: WSStream<Message, Error> + Debug + Send + 'static, DB: SignalDatabase + 
             chunks: Vec::new(), //ADD DENIABLE CHUNKS HERE
             counter: None, //TODO find out what this is used for, is only used for server -> client
             q: Some(1.0),  // TODO add real q value
-            ballast: 0,
-            extra_ballast: None,
+            ballast: Vec::new(),
         };
         let msg = create_request(
             id,
@@ -603,7 +602,7 @@ pub(crate) mod test {
                         }
                     },
                     "chunks": [],
-                    "ballast": 0
+                    "ballast": []
                 }
             ],
             "online": false,
@@ -690,7 +689,7 @@ pub(crate) mod test {
                             }}
                         }},
                         "chunks": [],
-                        "ballast": 0
+                        "ballast": []
                     }}
                 ],
                 "online": false,
