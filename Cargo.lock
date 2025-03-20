@@ -955,6 +955,7 @@ dependencies = [
  "async-trait",
  "axum",
  "base64 0.22.1",
+ "bincode",
  "bon",
  "derive_more",
  "futures-util",

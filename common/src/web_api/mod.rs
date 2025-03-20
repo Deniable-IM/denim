@@ -330,7 +330,7 @@ pub struct DenimMessage {
 #[serde(rename_all = "camelCase")]
 pub struct DenimChunk {
     pub chunk: Vec<u8>,
-    pub flags: i32,
+    pub flags: i32, // Bit flag 1 is dummy, 2 is final
 }
 
 /// Used to upload any type of prekey along with a signature that is used
