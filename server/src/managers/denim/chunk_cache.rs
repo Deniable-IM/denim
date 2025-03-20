@@ -114,6 +114,24 @@ where
         .await
     }
 
+    pub async fn get_all_chunks(&self, address: &ProtocolAddress) -> Result<Vec<DenimChunk>> {
+        let connection = self.pool.get().await?;
+        let queue_key = self.get_queue_key(address);
+        let queue_lock_key = self.get_persist_in_progress_key(address);
+
+        let messages = redis::get_values(connection, queue_key, queue_lock_key, -1).await?;
+        if messages.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut envelopes = Vec::new();
+        // messages is a [envelope1, msg_id1, envelope2, msg_id2, ...]
+        for i in (0..messages.len()).step_by(2) {
+            envelopes.push(bincode::deserialize(&messages[i])?);
+        }
+        Ok(envelopes)
+    }
+
     pub async fn add_availability_listener(
         &mut self,
         address: &ProtocolAddress,
@@ -136,6 +154,22 @@ where
         #[cfg(test)]
         format!(
             "{}chunk_queue::{{{}::{}}}",
+            self.test_key,
+            address.name(),
+            address.device_id()
+        )
+    }
+
+    fn get_persist_in_progress_key(&self, address: &ProtocolAddress) -> String {
+        #[cfg(not(test))]
+        return format!(
+            "chunk_queue_persisting::{{{}::{}}}",
+            address.name(),
+            address.device_id()
+        );
+        #[cfg(test)]
+        format!(
+            "{}chunk_queue_persisting::{{{}::{}}}",
             self.test_key,
             address.name(),
             address.device_id()
