@@ -311,8 +311,14 @@ pub struct DeviceActivationRequest {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub enum RegularPayload {
-    SignalMessage(SignalMessage),
-    Envelope(Envelope),
+    SignalMessage(SignalMessage), // client -> Server
+    Envelope(Envelope),           // server -> Client
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub enum DeniablePayload {
+    UserMessage(SignalMessage),
 }
 
 #[derive(Debug, Serialize, Deserialize)]

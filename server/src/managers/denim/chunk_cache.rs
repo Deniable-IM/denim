@@ -1,3 +1,4 @@
+use super::buffer::Buffer;
 use crate::{
     availability_listener::{add, notify_cached, remove, AvailabilityListener},
     managers::{
@@ -69,15 +70,14 @@ where
     pub async fn insert(
         &self,
         address: &ProtocolAddress,
+        buffer: Buffer,
         chunk: &DenimChunk,
-        chunk_guids: &str,
+        chunk_guid: &str,
     ) -> Result<u64> {
         let connection = self.pool.get().await?;
-
-        let queue_key: String = self.get_queue_key(address);
-        let queue_metadata_key: String = self.get_queue_metadata_key(address);
-        let queue_total_index_key: String = self.get_queue_index_key();
-
+        let queue_key: String = self.get_queue_key(address, buffer);
+        let queue_metadata_key: String = self.get_queue_metadata_key(address, buffer);
+        let queue_total_index_key: String = self.get_queue_index_key(buffer);
         let value = bincode::serialize(chunk)?;
 
         let chunk_id = redis::insert(
@@ -85,7 +85,7 @@ where
             queue_key,
             queue_metadata_key,
             queue_total_index_key,
-            chunk_guids,
+            chunk_guid,
             value,
         )
         .await;
@@ -97,27 +97,32 @@ where
     pub async fn remove(
         &self,
         address: &ProtocolAddress,
-        chunk_guids: Vec<String>,
+        buffer: Buffer,
+        chunk_guid: Vec<String>,
     ) -> Result<Vec<DenimChunk>> {
         let connection = self.pool.get().await?;
-        let queue_key: String = self.get_queue_key(address);
-        let queue_metadata_key: String = self.get_queue_metadata_key(address);
-        let queue_total_index_key: String = self.get_queue_index_key();
+        let queue_key: String = self.get_queue_key(address, buffer);
+        let queue_metadata_key: String = self.get_queue_metadata_key(address, buffer);
+        let queue_total_index_key: String = self.get_queue_index_key(buffer);
 
         redis::remove(
             connection,
             queue_key,
             queue_metadata_key,
             queue_total_index_key,
-            chunk_guids,
+            chunk_guid,
         )
         .await
     }
 
-    pub async fn get_all_chunks(&self, address: &ProtocolAddress) -> Result<Vec<DenimChunk>> {
+    pub async fn get_all_chunks(
+        &self,
+        address: &ProtocolAddress,
+        buffer: Buffer,
+    ) -> Result<Vec<DenimChunk>> {
         let connection = self.pool.get().await?;
-        let queue_key = self.get_queue_key(address);
-        let queue_lock_key = self.get_persist_in_progress_key(address);
+        let queue_key = self.get_queue_key(address, buffer);
+        let queue_lock_key = self.get_persist_in_progress_key(address, buffer);
 
         let messages = redis::get_values(connection, queue_key, queue_lock_key, -1).await?;
         if messages.is_empty() {
@@ -144,59 +149,65 @@ where
         remove(self.listeners.clone(), address).await;
     }
 
-    fn get_queue_key(&self, address: &ProtocolAddress) -> String {
+    fn get_queue_key(&self, address: &ProtocolAddress, buffer: Buffer) -> String {
         #[cfg(not(test))]
         return format!(
-            "chunk_queue::{{{}::{}}}",
+            "chunk_{}_queue::{{{}::{}}}",
+            buffer,
             address.name(),
             address.device_id()
         );
         #[cfg(test)]
         format!(
-            "{}chunk_queue::{{{}::{}}}",
+            "{}chunk_{}_queue::{{{}::{}}}",
             self.test_key,
+            buffer,
             address.name(),
             address.device_id()
         )
     }
 
-    fn get_persist_in_progress_key(&self, address: &ProtocolAddress) -> String {
+    fn get_persist_in_progress_key(&self, address: &ProtocolAddress, buffer: Buffer) -> String {
         #[cfg(not(test))]
         return format!(
-            "chunk_queue_persisting::{{{}::{}}}",
+            "chunk_{}_queue_persisting::{{{}::{}}}",
+            buffer,
             address.name(),
             address.device_id()
         );
         #[cfg(test)]
         format!(
-            "{}chunk_queue_persisting::{{{}::{}}}",
+            "{}chunk_{}_queue_persisting::{{{}::{}}}",
             self.test_key,
+            buffer,
             address.name(),
             address.device_id()
         )
     }
 
-    fn get_queue_metadata_key(&self, address: &ProtocolAddress) -> String {
+    fn get_queue_metadata_key(&self, address: &ProtocolAddress, buffer: Buffer) -> String {
         #[cfg(not(test))]
         return format!(
-            "chunk_queue_metadata::{{{}::{}}}",
+            "chunk_{}_queue_metadata::{{{}::{}}}",
+            buffer,
             address.name(),
             address.device_id()
         );
         #[cfg(test)]
         format!(
-            "{}chunk_queue_metadata::{{{}::{}}}",
+            "{}chunk_{}_queue_metadata::{{{}::{}}}",
             self.test_key,
+            buffer,
             address.name(),
             address.device_id()
         )
     }
 
-    fn get_queue_index_key(&self) -> String {
+    fn get_queue_index_key(&self, buffer: Buffer) -> String {
         #[cfg(not(test))]
-        return "chunk_queue_index_key".to_string();
+        return format!("chunk_{}_queue_index_key", buffer);
         #[cfg(test)]
-        format!("{}chunk_queue_index_key", self.test_key)
+        format!("{}chunk_{}_queue_index_key", self.test_key, buffer)
     }
 }
 
@@ -217,13 +228,14 @@ pub mod chunk_cache_tests {
         let address = new_protocol_address();
 
         let mut chunk = generate_chunk();
+        let buffer = Buffer::Reciver;
 
         chunk_cache
             .add_availability_listener(&address, websocket.clone())
             .await;
 
         chunk_cache
-            .insert(&address, &mut chunk, &uuid)
+            .insert(&address, buffer, &mut chunk, &uuid)
             .await
             .unwrap();
 
@@ -238,14 +250,15 @@ pub mod chunk_cache_tests {
         let chunk_guid = generate_uuid();
 
         let mut chunk = generate_chunk();
+        let reciver = Buffer::Reciver;
 
         let chunk_id = chunk_cache
-            .insert(&address, &mut chunk, &chunk_guid)
+            .insert(&address, reciver, &mut chunk, &chunk_guid)
             .await
             .unwrap();
 
         let result = cmd("ZRANGEBYSCORE")
-            .arg(chunk_cache.get_queue_key(&address))
+            .arg(chunk_cache.get_queue_key(&address, reciver))
             .arg(chunk_id)
             .arg(chunk_id)
             .query_async::<Vec<Vec<u8>>>(&mut connection)
@@ -265,14 +278,15 @@ pub mod chunk_cache_tests {
         let address = new_protocol_address();
         let chunk_guid = generate_uuid();
         let mut envelope = generate_chunk();
+        let reciver = Buffer::Reciver;
 
         chunk_cache
-            .insert(&address, &mut envelope, &chunk_guid)
+            .insert(&address, reciver, &mut envelope, &chunk_guid)
             .await
             .unwrap();
 
         let removed_chunks = chunk_cache
-            .remove(&address, vec![chunk_guid])
+            .remove(&address, reciver, vec![chunk_guid])
             .await
             .unwrap();
 
