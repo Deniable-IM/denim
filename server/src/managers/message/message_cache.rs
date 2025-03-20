@@ -145,8 +145,11 @@ where
     }
 
     pub async fn get_all_messages(&self, address: &ProtocolAddress) -> Result<Vec<Envelope>> {
-        let messages = self.get_items(address, -1).await?;
+        let connection = self.pool.get().await?;
+        let queue_key = self.get_message_queue_key(address);
+        let queue_lock_key = self.get_persist_in_progress_key(address);
 
+        let messages = redis::get_values(connection, queue_key, queue_lock_key, -1).await?;
         if messages.is_empty() {
             return Ok(Vec::new());
         }
@@ -157,41 +160,6 @@ where
             envelopes.push(bincode::deserialize(&messages[i])?);
         }
         Ok(envelopes)
-    }
-
-    async fn get_items(
-        &self,
-        address: &ProtocolAddress,
-        after_message_id: i32,
-    ) -> Result<Vec<Vec<u8>>> {
-        let mut connection = self.pool.get().await?;
-        let queue_key = self.get_message_queue_key(address);
-        let queue_lock_key = self.get_persist_in_progress_key(address);
-        let message_sort = format!("({}", after_message_id);
-
-        let locked = cmd("GET")
-            .arg(&queue_lock_key)
-            .query_async::<Option<String>>(&mut connection)
-            .await?;
-
-        // if there is a queue lock key on, due to persist of message.
-        if locked.is_some() {
-            return Ok(Vec::new());
-        }
-
-        let messages = cmd("ZRANGE")
-            .arg(queue_key.clone())
-            .arg(message_sort.clone())
-            .arg("+inf")
-            .arg("BYSCORE")
-            .arg("LIMIT")
-            .arg(0)
-            .arg(PAGE_SIZE)
-            .arg("WITHSCORES")
-            .query_async::<Vec<Vec<u8>>>(&mut connection)
-            .await?;
-
-        Ok(messages.clone())
     }
 
     pub async fn get_messages_to_persist(

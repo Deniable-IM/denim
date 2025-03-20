@@ -1,7 +1,10 @@
 use anyhow::Result;
 use deadpool_redis::Connection;
+use libsignal_core::ProtocolAddress;
 use redis::cmd;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+const PAGE_SIZE: u32 = 100;
 
 pub(crate) async fn insert(
     mut connection: Connection,
@@ -157,4 +160,37 @@ where
     }
 
     Ok(removed_values)
+}
+
+pub(crate) async fn get_values(
+    mut connection: Connection,
+    queue_key: String,
+    queue_lock_key: String,
+    stop_index: i32,
+) -> Result<Vec<Vec<u8>>> {
+    let values_sort = format!("({}", stop_index);
+
+    let locked = cmd("GET")
+        .arg(&queue_lock_key)
+        .query_async::<Option<String>>(&mut connection)
+        .await?;
+
+    // if there is a queue lock key on, due to persist of message.
+    if locked.is_some() {
+        return Ok(Vec::new());
+    }
+
+    let values = cmd("ZRANGE")
+        .arg(queue_key.clone())
+        .arg(values_sort.clone())
+        .arg("+inf")
+        .arg("BYSCORE")
+        .arg("LIMIT")
+        .arg(0)
+        .arg(PAGE_SIZE)
+        .arg("WITHSCORES")
+        .query_async::<Vec<Vec<u8>>>(&mut connection)
+        .await?;
+
+    Ok(values.clone())
 }
