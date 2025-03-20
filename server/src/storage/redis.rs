@@ -1,12 +1,11 @@
 use anyhow::Result;
 use deadpool_redis::Connection;
-use libsignal_core::ProtocolAddress;
 use redis::cmd;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const PAGE_SIZE: u32 = 100;
 
-pub(crate) async fn insert(
+pub async fn insert(
     mut connection: Connection,
     queue_key: String,
     queue_metadata_key: String,
@@ -83,7 +82,7 @@ pub(crate) async fn insert(
     Ok(value_id)
 }
 
-pub(crate) async fn remove<T>(
+pub async fn remove<T>(
     mut connection: Connection,
     queue_key: String,
     queue_metadata_key: String,
@@ -162,7 +161,7 @@ where
     Ok(removed_values)
 }
 
-pub(crate) async fn get_values(
+pub async fn get_values(
     mut connection: Connection,
     queue_key: String,
     queue_lock_key: String,

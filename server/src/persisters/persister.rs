@@ -4,8 +4,8 @@ use std::sync::{
 };
 
 use crate::{
-    availability_listener::AvailabilityListener, database::SignalDatabase,
-    managers::manager::Manager,
+    availability_listener::AvailabilityListener, managers::manager::Manager,
+    storage::database::SignalDatabase,
 };
 use anyhow::Result;
 

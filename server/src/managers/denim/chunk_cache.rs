@@ -3,11 +3,9 @@ use crate::{
     availability_listener::{add, notify_cached, remove, AvailabilityListener},
     managers::{
         manager::Manager,
-        message::{
-            message_cache::{self, MessageCache},
-            redis::{self},
-        },
+        message::message_cache::{self, MessageCache},
     },
+    storage::redis::{self},
 };
 use anyhow::Result;
 use common::web_api::DenimChunk;

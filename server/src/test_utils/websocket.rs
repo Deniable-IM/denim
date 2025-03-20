@@ -1,6 +1,6 @@
 use crate::{
     account::{Account, Device},
-    database::SignalDatabase,
+    storage::database::SignalDatabase,
 };
 use anyhow::Result;
 use axum::{async_trait, extract::ws::Message, Error};

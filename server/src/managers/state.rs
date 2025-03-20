@@ -8,7 +8,7 @@ use super::{
 };
 #[cfg(test)]
 use crate::test_utils::websocket::{MockDB, MockSocket};
-use crate::{database::SignalDatabase, postgres::PostgresDatabase};
+use crate::{storage::database::SignalDatabase, storage::postgres::PostgresDatabase};
 use axum::extract::ws::Message;
 use common::websocket::wsstream::WSStream;
 use std::fmt::Debug;

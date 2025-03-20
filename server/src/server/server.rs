@@ -4,7 +4,6 @@ use crate::{
     account::{Account, AuthenticatedDevice, Device},
     account_authenticator::SaltedTokenHash,
     availability_listener::AvailabilityListener,
-    database::SignalDatabase,
     envelope::ToEnvelope,
     error::ApiError,
     managers::{
@@ -15,7 +14,8 @@ use crate::{
         },
     },
     persisters::{message_persister::MessagePersister, persister::Persister},
-    postgres::PostgresDatabase,
+    storage::database::SignalDatabase,
+    storage::postgres::PostgresDatabase,
     validators::{
         destination_device_validator::DestinationDeviceValidator,
         pre_key_signature_validator::PreKeySignatureValidator,

@@ -1,5 +1,5 @@
 use super::connection::{ClientConnection, ConnectionMap, WebSocketConnection};
-use crate::database::SignalDatabase;
+use crate::storage::database::SignalDatabase;
 use axum::extract::ws::Message;
 use common::signalservice::WebSocketMessage;
 use common::websocket::wsstream::WSStream;

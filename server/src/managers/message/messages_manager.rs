@@ -1,7 +1,7 @@
 use super::message_cache::MessageCache;
 use crate::{
-    availability_listener::AvailabilityListener, database::SignalDatabase,
-    managers::manager::Manager,
+    availability_listener::AvailabilityListener, managers::manager::Manager,
+    storage::database::SignalDatabase,
 };
 use anyhow::{Ok, Result};
 use common::signalservice::Envelope;
@@ -159,7 +159,7 @@ where
 pub mod message_manager_tests {
     use super::*;
     use crate::{
-        postgres::PostgresDatabase,
+        storage::postgres::PostgresDatabase,
         test_utils::{
             database::database_connect,
             message_cache::{teardown, MockWebSocketConnection},

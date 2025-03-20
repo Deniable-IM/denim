@@ -1,9 +1,9 @@
 use crate::{
     account::AuthenticatedDevice,
     availability_listener::AvailabilityListener,
-    database::SignalDatabase,
     managers::{client_presence_manager::DisplacedPresenceListener, state::SignalServerState},
     signal_server::{handle_keepalive, handle_put_messages},
+    storage::database::SignalDatabase,
 };
 use axum::Error;
 use axum::{
@@ -373,9 +373,9 @@ pub type ConnectionMap<T, U> = Arc<Mutex<HashMap<ProtocolAddress, ClientConnecti
 pub(crate) mod test {
     use super::{UserIdentity, WebSocketConnection};
     use crate::{
-        database::SignalDatabase,
         managers::state::SignalServerState,
-        postgres::PostgresDatabase,
+        storage::database::SignalDatabase,
+        storage::postgres::PostgresDatabase,
         test_utils::{
             message_cache::teardown,
             user::new_authenticated_device,

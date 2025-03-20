@@ -1,4 +1,4 @@
-use crate::postgres::PostgresDatabase;
+use crate::storage::postgres::PostgresDatabase;
 use anyhow::Result;
 use common::web_api::UploadSignedPreKey;
 use libsignal_core::ProtocolAddress;

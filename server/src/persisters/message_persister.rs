@@ -2,12 +2,12 @@ use super::persister::{Persister, RunFlag};
 use crate::{
     account::{Account, Device},
     availability_listener::AvailabilityListener,
-    database::SignalDatabase,
     managers::{
         account_manager::AccountManager,
         manager::{self, Manager},
         message::{message_cache::MessageCache, messages_manager::MessagesManager},
     },
+    storage::database::SignalDatabase,
 };
 use anyhow::{anyhow, Result};
 use libsignal_core::{ProtocolAddress, ServiceId};
@@ -177,13 +177,13 @@ where
 #[cfg(test)]
 mod message_persister_tests {
     use crate::{
-        database::SignalDatabase,
         managers::{
             account_manager::AccountManager,
             message::{message_cache::MessageCache, messages_manager::MessagesManager},
         },
         persisters::persister::Persister,
-        postgres::PostgresDatabase,
+        storage::database::SignalDatabase,
+        storage::postgres::PostgresDatabase,
         test_utils::{
             database::database_connect,
             message_cache::{generate_envelope, generate_uuid, teardown, MockWebSocketConnection},

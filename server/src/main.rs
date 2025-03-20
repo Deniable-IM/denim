@@ -3,13 +3,12 @@ use std::env;
 mod account;
 mod account_authenticator;
 mod availability_listener;
-pub mod database;
 mod envelope;
 mod error;
 pub mod managers;
 mod persisters;
-mod postgres;
 mod server;
+mod storage;
 #[cfg(test)]
 mod test_utils;
 mod validators;

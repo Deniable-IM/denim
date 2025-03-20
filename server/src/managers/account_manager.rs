@@ -2,8 +2,8 @@ use std::any::Any;
 
 use crate::{
     account::{Account, Device},
-    database::SignalDatabase,
     error::ApiError,
+    storage::database::SignalDatabase,
 };
 use anyhow::Result;
 use common::web_api::DevicePreKeyBundle;

@@ -1,7 +1,7 @@
 use super::{buffer::Buffer, chunk_cache::ChunkCache};
 use crate::{
-    availability_listener::AvailabilityListener, database::SignalDatabase,
-    managers::manager::Manager,
+    availability_listener::AvailabilityListener, managers::manager::Manager,
+    storage::database::SignalDatabase,
 };
 use anyhow::Result;
 use common::web_api::{DeniablePayload, DenimChunk};
@@ -108,7 +108,7 @@ where
 pub mod denim_manager_tests {
     use super::*;
     use crate::{
-        postgres::PostgresDatabase,
+        storage::postgres::PostgresDatabase,
         test_utils::{
             database::database_connect,
             message_cache::{teardown, MockWebSocketConnection},

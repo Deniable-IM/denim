@@ -1,4 +1,3 @@
-use crate::managers::message::redis::{self};
 #[cfg(test)]
 use crate::test_utils::random_string;
 use crate::{
@@ -6,6 +5,7 @@ use crate::{
         add, notify_cached, notify_persisted, remove, AvailabilityListener, ListenerMap,
     },
     managers::manager::Manager,
+    storage::redis::{self},
 };
 use anyhow::Result;
 use common::signalservice::Envelope;

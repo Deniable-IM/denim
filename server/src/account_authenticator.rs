@@ -1,8 +1,8 @@
 use crate::{
     account::{Account, AuthenticatedDevice, Device},
-    database::SignalDatabase,
     error::ApiError,
     managers::state::SignalServerState,
+    storage::database::SignalDatabase,
 };
 use axum::extract::ws::Message;
 use axum::{
