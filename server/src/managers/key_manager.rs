@@ -1,5 +1,5 @@
 use super::manager::Manager;
-use crate::{account::AuthenticatedDevice, storage::database::SignalDatabase, error::ApiError};
+use crate::{account::AuthenticatedDevice, error::ApiError, storage::database::SignalDatabase};
 use anyhow::Result;
 use axum::http::StatusCode;
 use common::web_api::{PreKeyResponse, PreKeyResponseItem, SetKeyRequest, UploadSignedPreKey};

@@ -1,2 +1,2 @@
-pub mod persister;
 pub mod message_persister;
+pub mod persister;
