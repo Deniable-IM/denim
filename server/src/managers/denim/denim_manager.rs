@@ -57,15 +57,15 @@ where
         Ok(count)
     }
 
-    pub async fn get_outgoing_chunks(&self, recever: &ProtocolAddress) -> Result<Vec<DenimChunk>> {
+    pub async fn get_outgoing_chunks(&self, receiver: &ProtocolAddress) -> Result<Vec<DenimChunk>> {
         self.chunk_cache
-            .get_all_chunks(recever, Buffer::Receiver)
+            .get_all_chunks(receiver, Buffer::Receiver)
             .await
     }
 
     pub async fn set_outgoing_chunks(
         &self,
-        recever: &ProtocolAddress,
+        receiver: &ProtocolAddress,
         chunks: Vec<DenimChunk>,
     ) -> Result<u64> {
         let mut count = 0;
@@ -73,7 +73,7 @@ where
             count += self
                 .chunk_cache
                 .insert(
-                    recever,
+                    receiver,
                     Buffer::Receiver,
                     &chunk,
                     &Uuid::new_v4().to_string(),
@@ -83,13 +83,13 @@ where
         Ok(count)
     }
 
-    pub fn get_deniable_payload(&self, _recever: &ProtocolAddress) -> Result<DeniablePayload> {
+    pub fn get_deniable_payload(&self, _receiver: &ProtocolAddress) -> Result<DeniablePayload> {
         todo!()
     }
 
     pub fn queue_deniable_payload(
         &self,
-        _recever: &ProtocolAddress,
+        _receiver: &ProtocolAddress,
         _payload: DeniablePayload,
     ) -> Result<()> {
         todo!()
