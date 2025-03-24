@@ -1,6 +1,6 @@
 use crate::{
     account::{Account, Device},
-    database::SignalDatabase,
+    storage::database::SignalDatabase,
 };
 use anyhow::{anyhow, bail, Result};
 use axum::async_trait;
@@ -1101,7 +1101,7 @@ mod db_tests {
     use uuid::Uuid;
 
     use crate::{
-        database::SignalDatabase,
+        storage::database::SignalDatabase,
         test_utils::{
             database::{
                 database_connect, get_aci_signed_pre_key, get_pni_signed_pre_key,

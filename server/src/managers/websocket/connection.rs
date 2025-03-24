@@ -1,11 +1,10 @@
 use crate::{
     account::AuthenticatedDevice,
-    database::SignalDatabase,
+    availability_listener::AvailabilityListener,
     managers::{client_presence_manager::DisplacedPresenceListener, state::SignalServerState},
-    message_cache::MessageAvailabilityListener,
-    server::{handle_keepalive, handle_put_messages},
+    signal_server::{handle_keepalive, handle_put_messages},
+    storage::database::SignalDatabase,
 };
-use axum::extract::ws::WebSocket;
 use axum::Error;
 use axum::{
     extract::ws::{CloseFrame, Message},
@@ -25,18 +24,10 @@ use common::{
     },
     web_api::DenimMessage,
 };
-use futures_util::{stream::SplitSink, Sink, SinkExt, Stream};
+use futures_util::{stream::SplitSink, SinkExt};
 use libsignal_core::{ProtocolAddress, ServiceId, ServiceIdKind};
 use prost::Message as PMessage;
-use std::{
-    collections::HashMap,
-    fmt::Debug,
-    net::SocketAddr,
-    pin::Pin,
-    sync::Arc,
-    task::{Context, Poll},
-    time::SystemTimeError,
-};
+use std::{collections::HashMap, fmt::Debug, net::SocketAddr, sync::Arc, time::SystemTimeError};
 use tokio::sync::Mutex;
 
 #[derive(Debug)]
@@ -54,7 +45,7 @@ pub struct WebSocketConnection<W: WSStream<Message, Error> + Debug, DB: SignalDa
     state: SignalServerState<DB, W>,
 }
 
-impl<W: WSStream<Message, Error> + Debug + Send + 'static, DB: SignalDatabase + Send + 'static>
+impl<W: WSStream<Message, Error> + Debug + Send + 'static, DB: SignalDatabase>
     WebSocketConnection<W, DB>
 {
     pub fn new(
@@ -337,19 +328,19 @@ impl<W: WSStream<Message, Error> + Debug + Send + 'static, DB: SignalDatabase + 
 }
 
 #[async_trait::async_trait]
-impl<T, U> MessageAvailabilityListener for WebSocketConnection<T, U>
+impl<T, U> AvailabilityListener for WebSocketConnection<T, U>
 where
     T: WSStream<Message, Error> + Debug + 'static,
     U: SignalDatabase,
 {
-    async fn handle_new_messages_available(&mut self) -> bool {
+    async fn send_cached(&mut self) -> bool {
         if !(self.is_active() && self.send_messages(true).await) {
             return false;
         }
         self.send_queue_empty().await
     }
 
-    async fn handle_messages_persisted(&mut self) -> bool {
+    async fn send_persisted(&mut self) -> bool {
         if !(self.is_active() && self.send_messages(false).await) {
             return false;
         }
@@ -360,7 +351,7 @@ where
 #[async_trait::async_trait]
 impl<T, U> DisplacedPresenceListener for WebSocketConnection<T, U>
 where
-    T: WSStream<Message, axum::Error> + Debug + 'static,
+    T: WSStream<Message, Error> + Debug + 'static,
     U: SignalDatabase,
 {
     async fn handle_displacement(&mut self, connected_elsewhere: bool) {
@@ -375,55 +366,6 @@ where
     }
 }
 
-#[derive(Debug)]
-pub struct SignalWebSocket(WebSocket);
-impl SignalWebSocket {
-    pub fn new(w: WebSocket) -> Self {
-        Self(w)
-    }
-}
-
-impl Stream for SignalWebSocket {
-    type Item = Result<Message, Error>;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Stream::poll_next(Pin::new(&mut self.0), cx)
-    }
-}
-
-impl Sink<Message> for SignalWebSocket {
-    type Error = Error;
-
-    fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Sink::poll_ready(Pin::new(&mut self.0), cx)
-    }
-
-    fn start_send(mut self: Pin<&mut Self>, item: Message) -> Result<(), Self::Error> {
-        Sink::start_send(Pin::new(&mut self.0), item)
-    }
-
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Sink::poll_flush(Pin::new(&mut self.0), cx)
-    }
-
-    fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Sink::poll_close(Pin::new(&mut self.0), cx)
-    }
-}
-
-#[async_trait::async_trait]
-impl WSStream<Message, Error> for SignalWebSocket {
-    async fn recv(&mut self) -> Option<Result<Message, Error>> {
-        self.recv().await
-    }
-    async fn send(&mut self, msg: Message) -> Result<(), Error> {
-        SinkExt::send(self, msg).await
-    }
-    async fn close(self) -> Result<(), Error> {
-        self.close().await
-    }
-}
-
 pub type ClientConnection<T, U> = Arc<Mutex<WebSocketConnection<T, U>>>;
 pub type ConnectionMap<T, U> = Arc<Mutex<HashMap<ProtocolAddress, ClientConnection<T, U>>>>;
 
@@ -431,9 +373,9 @@ pub type ConnectionMap<T, U> = Arc<Mutex<HashMap<ProtocolAddress, ClientConnecti
 pub(crate) mod test {
     use super::{UserIdentity, WebSocketConnection};
     use crate::{
-        database::SignalDatabase,
         managers::state::SignalServerState,
-        postgres::PostgresDatabase,
+        storage::database::SignalDatabase,
+        storage::postgres::PostgresDatabase,
         test_utils::{
             message_cache::teardown,
             user::new_authenticated_device,
@@ -663,8 +605,8 @@ pub(crate) mod test {
         let alice_address = alice.protocol_address();
         let bob_address = bob.protocol_address();
 
-        state.websocket_manager.insert(alice, alice_mreceiver).await;
-        state.websocket_manager.insert(bob, bob_mreceiver).await;
+        state.websocket_manager.listen(alice, alice_mreceiver).await;
+        state.websocket_manager.listen(bob, bob_mreceiver).await;
         let ws_alice = state.websocket_manager.get(&alice_address).await.unwrap();
         let ws_bob = state.websocket_manager.get(&bob_address).await.unwrap();
         state
@@ -781,7 +723,7 @@ pub(crate) mod test {
             create_connection("127.0.0.1:4043", state.clone()).await;
         let address = ws.protocol_address();
         let mut mgr = state.websocket_manager.clone();
-        mgr.insert(ws, mreceiver).await;
+        mgr.listen(ws, mreceiver).await;
         let listener = mgr.get(&address).await.unwrap();
         let mut env = make_envelope();
 
@@ -843,7 +785,7 @@ pub(crate) mod test {
         let addr = client.protocol_address();
         let websocket = Arc::new(tokio::sync::Mutex::new(client));
 
-        state
+        let _ = state
             .client_presence_manager
             .set_present(&addr, websocket.clone())
             .await
@@ -871,7 +813,7 @@ pub(crate) mod test {
         let (mut client, _sender, mut receiver, _stream) =
             create_connection("127.0.0.1:4042", state.clone()).await;
 
-        state
+        let _ = state
             .clone()
             .client_presence_manager
             .disconnect_presence_in_test(&client.protocol_address())

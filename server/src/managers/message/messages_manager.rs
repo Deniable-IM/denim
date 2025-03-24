@@ -1,19 +1,20 @@
+use super::message_cache::MessageCache;
 use crate::{
-    database::SignalDatabase,
-    message_cache::{MessageAvailabilityListener, MessageCache},
+    availability_listener::AvailabilityListener, managers::manager::Manager,
+    storage::database::SignalDatabase,
 };
 use anyhow::{Ok, Result};
 use common::signalservice::Envelope;
 use libsignal_core::ProtocolAddress;
-use std::sync::Arc;
+use std::{any::Any, sync::Arc};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
 #[derive(Debug)]
 pub struct MessagesManager<T, U>
 where
-    T: SignalDatabase + Send,
-    U: MessageAvailabilityListener + Send,
+    T: SignalDatabase,
+    U: AvailabilityListener + 'static,
 {
     db: T,
     message_cache: MessageCache<U>,
@@ -21,8 +22,8 @@ where
 
 impl<T, U> Clone for MessagesManager<T, U>
 where
-    T: SignalDatabase + Clone + Send,
-    U: MessageAvailabilityListener + Send,
+    T: SignalDatabase,
+    U: AvailabilityListener,
 {
     fn clone(&self) -> Self {
         Self {
@@ -32,10 +33,20 @@ where
     }
 }
 
+impl<T, U> Manager for MessagesManager<T, U>
+where
+    T: SignalDatabase,
+    U: AvailabilityListener + 'static,
+{
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
 impl<T, U> MessagesManager<T, U>
 where
-    T: SignalDatabase + Send,
-    U: MessageAvailabilityListener + Send,
+    T: SignalDatabase,
+    U: AvailabilityListener,
 {
     pub fn new(db: T, message_cache: MessageCache<U>) -> Self {
         Self { db, message_cache }
@@ -136,8 +147,8 @@ where
 
 impl<T, U> MessagesManager<T, U>
 where
-    T: SignalDatabase + Send,
-    U: MessageAvailabilityListener + Send,
+    T: SignalDatabase,
+    U: AvailabilityListener,
 {
     async fn has_messages(&self, address: &ProtocolAddress) -> Result<bool> {
         Ok(self.db.count_messages(address).await? > 0)
@@ -148,8 +159,7 @@ where
 pub mod message_manager_tests {
     use super::*;
     use crate::{
-        message_cache::MessageCache,
-        postgres::PostgresDatabase,
+        storage::postgres::PostgresDatabase,
         test_utils::{
             database::database_connect,
             message_cache::{teardown, MockWebSocketConnection},

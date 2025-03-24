@@ -1,16 +1,14 @@
+use crate::server::signal_server;
 use std::env;
-
 mod account;
 mod account_authenticator;
-pub mod database;
+mod availability_listener;
 mod envelope;
 mod error;
 pub mod managers;
-mod message_cache;
-mod postgres;
-mod query;
-mod response;
+mod persisters;
 mod server;
+mod storage;
 #[cfg(test)]
 mod test_utils;
 mod validators;
@@ -19,5 +17,5 @@ mod validators;
 pub async fn main() {
     let use_tls = !env::args().any(|arg| arg == "--no-tls");
     println!("Using tls: {}", use_tls);
-    server::start_server(use_tls).await.unwrap();
+    signal_server::start_server(use_tls).await.unwrap();
 }

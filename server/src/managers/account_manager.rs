@@ -1,7 +1,9 @@
+use std::any::Any;
+
 use crate::{
     account::{Account, Device},
-    database::SignalDatabase,
     error::ApiError,
+    storage::database::SignalDatabase,
 };
 use anyhow::Result;
 use common::web_api::DevicePreKeyBundle;
@@ -10,12 +12,23 @@ use libsignal_core::{Aci, Pni, ProtocolAddress, ServiceId};
 use libsignal_protocol::IdentityKey;
 use uuid::Uuid;
 
+use super::manager::Manager;
+
 #[derive(Default, Debug, Clone)]
 pub struct AccountManager<T>
 where
     T: SignalDatabase,
 {
     db: T,
+}
+
+impl<T> Manager for AccountManager<T>
+where
+    T: SignalDatabase,
+{
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 impl<T> AccountManager<T>

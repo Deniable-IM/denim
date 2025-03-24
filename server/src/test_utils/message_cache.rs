@@ -1,5 +1,5 @@
-use crate::message_cache::MessageAvailabilityListener;
-use common::signalservice::Envelope;
+use crate::availability_listener::AvailabilityListener;
+use common::{signalservice::Envelope, web_api::DenimChunk};
 use redis::cmd;
 use uuid::Uuid;
 
@@ -42,6 +42,12 @@ pub fn generate_envelope(uuid: &str) -> Envelope {
     }
 }
 
+pub fn generate_chunk() -> DenimChunk {
+    DenimChunk {
+        ..Default::default()
+    }
+}
+
 pub struct MockWebSocketConnection {
     pub evoked_handle_new_messages: bool,
     pub evoked_handle_messages_persisted: bool,
@@ -57,13 +63,13 @@ impl MockWebSocketConnection {
 }
 
 #[async_trait::async_trait]
-impl MessageAvailabilityListener for MockWebSocketConnection {
-    async fn handle_new_messages_available(&mut self) -> bool {
+impl AvailabilityListener for MockWebSocketConnection {
+    async fn send_cached(&mut self) -> bool {
         self.evoked_handle_new_messages = true;
         true
     }
 
-    async fn handle_messages_persisted(&mut self) -> bool {
+    async fn send_persisted(&mut self) -> bool {
         self.evoked_handle_messages_persisted = true;
         true
     }

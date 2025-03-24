@@ -2,12 +2,13 @@ use super::{
     account_manager::AccountManager,
     client_presence_manager::ClientPresenceManager,
     key_manager::KeyManager,
-    messages_manager::MessagesManager,
+    manager::Manager,
+    message::{message_cache::MessageCache, messages_manager::MessagesManager},
     websocket::{connection::WebSocketConnection, websocket_manager::WebSocketManager},
 };
 #[cfg(test)]
 use crate::test_utils::websocket::{MockDB, MockSocket};
-use crate::{database::SignalDatabase, message_cache::MessageCache, postgres::PostgresDatabase};
+use crate::{storage::database::SignalDatabase, storage::postgres::PostgresDatabase};
 use axum::extract::ws::Message;
 use common::websocket::wsstream::WSStream;
 use std::fmt::Debug;
@@ -27,9 +28,19 @@ where
     pub message_cache: MessageCache<WebSocketConnection<U, T>>,
 }
 
+impl<T, U> Manager for SignalServerState<T, U>
+where
+    T: SignalDatabase,
+    U: WSStream<Message, axum::Error> + Debug,
+{
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
 impl<T, U> Clone for SignalServerState<T, U>
 where
-    T: SignalDatabase + Clone,
+    T: SignalDatabase,
     U: WSStream<Message, axum::Error> + Debug,
 {
     fn clone(&self) -> Self {

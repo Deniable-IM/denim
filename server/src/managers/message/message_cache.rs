@@ -1,38 +1,44 @@
 #[cfg(test)]
 use crate::test_utils::random_string;
+use crate::{
+    availability_listener::{
+        add, notify_cached, notify_persisted, remove, AvailabilityListener, ListenerMap,
+    },
+    managers::manager::Manager,
+    storage::redis::{self},
+};
 use anyhow::Result;
 use common::signalservice::Envelope;
 use deadpool_redis::{redis::cmd, Config, Connection, Runtime};
 use libsignal_core::ProtocolAddress;
-use std::{
-    collections::HashMap,
-    sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::{any::Any, collections::HashMap, sync::Arc};
 use tokio::sync::Mutex;
 
 const PAGE_SIZE: u32 = 100;
 
-#[async_trait::async_trait]
-pub trait MessageAvailabilityListener {
-    async fn handle_new_messages_available(&mut self) -> bool;
-
-    async fn handle_messages_persisted(&mut self) -> bool;
-}
-
-type ListenerMap<T> = Arc<Mutex<HashMap<String, Arc<Mutex<T>>>>>;
-
 #[derive(Debug)]
-pub struct MessageCache<T: MessageAvailabilityListener> {
-    pool: deadpool_redis::Pool,
-    listeners: ListenerMap<T>,
+pub struct MessageCache<T>
+where
+    T: AvailabilityListener,
+{
+    pub(crate) pool: deadpool_redis::Pool,
+    pub(crate) listeners: ListenerMap<T>,
     #[cfg(test)]
     pub test_key: String,
 }
 
+impl<T> Manager for MessageCache<T>
+where
+    T: AvailabilityListener + 'static,
+{
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
 impl<T> Clone for MessageCache<T>
 where
-    T: MessageAvailabilityListener,
+    T: AvailabilityListener,
 {
     fn clone(&self) -> Self {
         #[cfg(not(test))]
@@ -40,6 +46,7 @@ where
             pool: self.pool.clone(),
             listeners: self.listeners.clone(),
         };
+
         #[cfg(test)]
         Self {
             pool: self.pool.clone(),
@@ -49,7 +56,10 @@ where
     }
 }
 
-impl<T: MessageAvailabilityListener> MessageCache<T> {
+impl<T> MessageCache<T>
+where
+    T: AvailabilityListener,
+{
     pub fn connect() -> Self {
         let _ = dotenv::dotenv();
         let redis_url = std::env::var("REDIS_URL").expect("Unable to read REDIS_URL .env var");
@@ -80,8 +90,7 @@ impl<T: MessageAvailabilityListener> MessageCache<T> {
         envelope: &mut Envelope,
         message_guid: &str,
     ) -> Result<u64> {
-        let mut connection = self.pool.get().await?;
-
+        let connection = self.pool.get().await?;
         let queue_key: String = self.get_message_queue_key(address);
         let queue_metadata_key: String = self.get_message_queue_metadata_key(address);
         let queue_total_index_key: String = self.get_queue_index_key();
@@ -89,74 +98,18 @@ impl<T: MessageAvailabilityListener> MessageCache<T> {
         envelope.server_guid = Some(message_guid.to_string());
         let data = bincode::serialize(&envelope)?;
 
-        let message_guid_exists = cmd("HEXISTS")
-            .arg(&queue_metadata_key)
-            .arg(message_guid)
-            .query_async::<u8>(&mut connection)
-            .await?;
+        let message_id = redis::insert(
+            connection,
+            queue_key,
+            queue_metadata_key,
+            queue_total_index_key,
+            message_guid,
+            data,
+        )
+        .await;
 
-        if message_guid_exists == 1 {
-            let num = cmd("HGET")
-                .arg(&queue_metadata_key)
-                .arg(message_guid)
-                .query_async::<String>(&mut connection)
-                .await?;
-
-            return Ok(num.parse().expect("Could not parse redis id"));
-        }
-
-        let message_id = cmd("HINCRBY")
-            .arg(&queue_metadata_key)
-            .arg("counter")
-            .arg(1)
-            .query_async::<u64>(&mut connection)
-            .await?;
-
-        cmd("ZADD")
-            .arg(&queue_key)
-            .arg("NX")
-            .arg(message_id)
-            .arg(&data)
-            .query_async::<()>(&mut connection)
-            .await?;
-
-        cmd("HSET")
-            .arg(&queue_metadata_key)
-            .arg(message_guid)
-            .arg(message_id)
-            .query_async::<()>(&mut connection)
-            .await?;
-
-        cmd("EXPIRE")
-            .arg(&queue_key)
-            .arg(2678400)
-            .query_async::<()>(&mut connection)
-            .await?;
-
-        cmd("EXPIRE")
-            .arg(&queue_metadata_key)
-            .arg(2678400)
-            .query_async::<()>(&mut connection)
-            .await?;
-
-        let time = SystemTime::now();
-        let time_in_millis: u64 = time.duration_since(UNIX_EPOCH)?.as_secs();
-
-        cmd("ZADD")
-            .arg(&queue_total_index_key)
-            .arg("NX")
-            .arg(time_in_millis)
-            .arg(&queue_key)
-            .query_async::<()>(&mut connection)
-            .await?;
-
-        // notifies the message availability manager
-        let queue_name = format!("{}::{}", address.name(), address.device_id());
-        if let Some(listener) = self.listeners.lock().await.get(&queue_name) {
-            listener.lock().await.handle_new_messages_available().await;
-        }
-
-        Ok(message_id)
+        notify_cached(self.listeners.clone(), address).await;
+        message_id
     }
 
     pub async fn remove(
@@ -164,79 +117,19 @@ impl<T: MessageAvailabilityListener> MessageCache<T> {
         address: &ProtocolAddress,
         message_guids: Vec<String>,
     ) -> Result<Vec<Envelope>> {
-        let mut connection = self.pool.get().await?;
-
+        let connection = self.pool.get().await?;
         let queue_key: String = self.get_message_queue_key(address);
         let queue_metadata_key: String = self.get_message_queue_metadata_key(address);
         let queue_total_index_key: String = self.get_queue_index_key();
 
-        let mut removed_messages: Vec<Envelope> = Vec::new();
-
-        for guid in message_guids {
-            let message_id: Option<String> = cmd("HGET")
-                .arg(&queue_metadata_key)
-                .arg(&guid)
-                .query_async(&mut connection)
-                .await?;
-
-            if let Some(msg_id) = message_id.clone() {
-                // retrieving the message
-                let envelope = cmd("ZRANGE")
-                    .arg(&queue_key)
-                    .arg(&msg_id)
-                    .arg(&msg_id)
-                    .arg("BYSCORE")
-                    .arg("LIMIT")
-                    .arg(0)
-                    .arg(1)
-                    .query_async::<Option<Vec<Vec<u8>>>>(&mut connection)
-                    .await?;
-
-                // delete the message
-                cmd("ZREMRANGEBYSCORE")
-                    .arg(&queue_key)
-                    .arg(&msg_id)
-                    .arg(&msg_id)
-                    .query_async::<()>(&mut connection)
-                    .await?;
-
-                // delete the guid from the cache
-                cmd("HDEL")
-                    .arg(&queue_metadata_key)
-                    .arg(&guid)
-                    .query_async::<()>(&mut connection)
-                    .await?;
-
-                if let Some(envel) = envelope {
-                    removed_messages.push(bincode::deserialize(&envel[0])?);
-                }
-            }
-        }
-
-        if cmd("ZCARD")
-            .arg(&queue_key)
-            .query_async::<u64>(&mut connection)
-            .await?
-            == 0
-        {
-            cmd("DEL")
-                .arg(&queue_key)
-                .query_async::<()>(&mut connection)
-                .await?;
-
-            cmd("DEL")
-                .arg(&queue_metadata_key)
-                .query_async::<()>(&mut connection)
-                .await?;
-
-            cmd("ZREM")
-                .arg(&queue_total_index_key)
-                .arg(&queue_key)
-                .query_async::<()>(&mut connection)
-                .await?;
-        }
-
-        Ok(removed_messages)
+        redis::remove(
+            connection,
+            queue_key,
+            queue_metadata_key,
+            queue_total_index_key,
+            message_guids,
+        )
+        .await
     }
 
     pub async fn has_messages(&self, address: &ProtocolAddress) -> Result<bool> {
@@ -246,17 +139,17 @@ impl<T: MessageAvailabilityListener> MessageCache<T> {
             .arg(self.get_message_queue_key(address))
             .query_async::<u32>(&mut connection)
             .await?;
-        let queue_name = format!("{}::{}", address.name(), address.device_id());
-        if let Some(listener) = self.listeners.lock().await.get(&queue_name) {
-            listener.lock().await.handle_new_messages_available().await;
-        }
 
+        notify_cached(self.listeners.clone(), address).await;
         Ok(msg_count > 0)
     }
 
     pub async fn get_all_messages(&self, address: &ProtocolAddress) -> Result<Vec<Envelope>> {
-        let messages = self.get_items(address, -1).await?;
+        let connection = self.pool.get().await?;
+        let queue_key = self.get_message_queue_key(address);
+        let queue_lock_key = self.get_persist_in_progress_key(address);
 
+        let messages = redis::get_values(connection, queue_key, queue_lock_key, -1).await?;
         if messages.is_empty() {
             return Ok(Vec::new());
         }
@@ -267,41 +160,6 @@ impl<T: MessageAvailabilityListener> MessageCache<T> {
             envelopes.push(bincode::deserialize(&messages[i])?);
         }
         Ok(envelopes)
-    }
-
-    async fn get_items(
-        &self,
-        address: &ProtocolAddress,
-        after_message_id: i32,
-    ) -> Result<Vec<Vec<u8>>> {
-        let mut connection = self.pool.get().await?;
-        let queue_key = self.get_message_queue_key(address);
-        let queue_lock_key = self.get_persist_in_progress_key(address);
-        let message_sort = format!("({}", after_message_id);
-
-        let locked = cmd("GET")
-            .arg(&queue_lock_key)
-            .query_async::<Option<String>>(&mut connection)
-            .await?;
-
-        // if there is a queue lock key on, due to persist of message.
-        if locked.is_some() {
-            return Ok(Vec::new());
-        }
-
-        let messages = cmd("ZRANGE")
-            .arg(queue_key.clone())
-            .arg(message_sort.clone())
-            .arg("+inf")
-            .arg("BYSCORE")
-            .arg("LIMIT")
-            .arg(0)
-            .arg(PAGE_SIZE)
-            .arg("WITHSCORES")
-            .query_async::<Vec<Vec<u8>>>(&mut connection)
-            .await?;
-
-        Ok(messages.clone())
     }
 
     pub async fn get_messages_to_persist(
@@ -376,11 +234,7 @@ impl<T: MessageAvailabilityListener> MessageCache<T> {
             .query_async::<()>(&mut connection)
             .await?;
 
-        let queue_name = format!("{}::{}", address.name(), address.device_id());
-        if let Some(listener) = self.listeners.lock().await.get(&queue_name) {
-            listener.lock().await.handle_messages_persisted().await;
-        }
-
+        notify_persisted(self.listeners.clone(), address).await;
         Ok(())
     }
 
@@ -451,13 +305,11 @@ impl<T: MessageAvailabilityListener> MessageCache<T> {
         address: &ProtocolAddress,
         listener: Arc<Mutex<T>>,
     ) {
-        let queue_name = format!("{}::{}", address.name(), address.device_id());
-        self.listeners.lock().await.insert(queue_name, listener);
+        add(self.listeners.clone(), address, listener).await;
     }
 
     pub async fn remove_message_availability_listener(&mut self, address: &ProtocolAddress) {
-        let queue_name: String = format!("{}::{}", address.name(), address.device_id());
-        self.listeners.lock().await.remove(&queue_name);
+        remove(self.listeners.clone(), address).await
     }
 }
 
@@ -617,7 +469,6 @@ pub mod message_cache_tests {
     }
 
     #[tokio::test]
-
     async fn test_remove() {
         let message_cache: MessageCache<MockWebSocketConnection> = MessageCache::connect();
         let connection = message_cache.pool.get().await.unwrap();
@@ -642,7 +493,6 @@ pub mod message_cache_tests {
     }
 
     #[tokio::test]
-
     async fn test_get_all_messages() {
         let message_cache: MessageCache<MockWebSocketConnection> = MessageCache::connect();
         let connection = message_cache.pool.get().await.unwrap();
@@ -699,7 +549,6 @@ pub mod message_cache_tests {
     }
 
     #[tokio::test]
-
     async fn test_get_messages_to_persist() {
         let message_cache: MessageCache<MockWebSocketConnection> = MessageCache::connect();
         let connection = message_cache.pool.get().await.unwrap();

@@ -311,8 +311,14 @@ pub struct DeviceActivationRequest {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub enum RegularPayload {
-    SignalMessage(SignalMessage),
-    Envelope(Envelope),
+    SignalMessage(SignalMessage), // client -> Server
+    Envelope(Envelope),           // server -> Client
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub enum DeniablePayload {
+    UserMessage(SignalMessage),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -326,7 +332,7 @@ pub struct DenimMessage {
     pub extra_ballast: Option<i32>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct DenimChunk {
     pub chunk: Vec<u8>,
