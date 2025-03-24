@@ -59,7 +59,7 @@ where
 
     pub async fn get_outgoing_chunks(&self, recever: &ProtocolAddress) -> Result<Vec<DenimChunk>> {
         self.chunk_cache
-            .get_all_chunks(recever, Buffer::Reciver)
+            .get_all_chunks(recever, Buffer::Receiver)
             .await
     }
 
@@ -74,7 +74,7 @@ where
                 .chunk_cache
                 .insert(
                     recever,
-                    Buffer::Reciver,
+                    Buffer::Receiver,
                     &chunk,
                     &Uuid::new_v4().to_string(),
                 )

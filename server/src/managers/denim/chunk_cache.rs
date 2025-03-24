@@ -226,7 +226,7 @@ pub mod chunk_cache_tests {
         let address = new_protocol_address();
 
         let mut chunk = generate_chunk();
-        let buffer = Buffer::Reciver;
+        let buffer = Buffer::Receiver;
 
         chunk_cache
             .add_availability_listener(&address, websocket.clone())
@@ -248,7 +248,7 @@ pub mod chunk_cache_tests {
         let chunk_guid = generate_uuid();
 
         let mut chunk = generate_chunk();
-        let reciver = Buffer::Reciver;
+        let reciver = Buffer::Receiver;
 
         let chunk_id = chunk_cache
             .insert(&address, reciver, &mut chunk, &chunk_guid)
@@ -276,7 +276,7 @@ pub mod chunk_cache_tests {
         let address = new_protocol_address();
         let chunk_guid = generate_uuid();
         let mut envelope = generate_chunk();
-        let reciver = Buffer::Reciver;
+        let reciver = Buffer::Receiver;
 
         chunk_cache
             .insert(&address, reciver, &mut envelope, &chunk_guid)
