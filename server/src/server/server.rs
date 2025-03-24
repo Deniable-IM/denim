@@ -812,13 +812,6 @@ pub async fn start_server(use_tls: bool) -> Result<(), Box<dyn std::error::Error
 
     let state = SignalServerState::<PostgresDatabase, SignalWebSocket>::new().await;
 
-    // let message_persister = MessagePersister::start(
-    //     state.message_manager.clone(),
-    //     state.message_cache.clone(),
-    //     state.db.clone(),
-    //     state.account_manager.clone(),
-    // );
-
     let message_persister = MessagePersister::<
         PostgresDatabase,
         WebSocketConnection<SignalWebSocket, PostgresDatabase>,
