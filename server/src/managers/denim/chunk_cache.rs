@@ -122,17 +122,17 @@ where
         let queue_key = self.get_queue_key(address, buffer);
         let queue_lock_key = self.get_persist_in_progress_key(address, buffer);
 
-        let messages = redis::get_values(connection, queue_key, queue_lock_key, -1).await?;
-        if messages.is_empty() {
+        let values = redis::get_values(connection, queue_key, queue_lock_key, -1).await?;
+        if values.is_empty() {
             return Ok(Vec::new());
         }
 
-        let mut envelopes = Vec::new();
-        // messages is a [envelope1, msg_id1, envelope2, msg_id2, ...]
-        for i in (0..messages.len()).step_by(2) {
-            envelopes.push(bincode::deserialize(&messages[i])?);
+        let mut chunks = Vec::new();
+        // chunks is a [chunk1, msg_id1, chunk2, msg_id2, ...]
+        for i in (0..values.len()).step_by(2) {
+            chunks.push(bincode::deserialize(&values[i])?);
         }
-        Ok(envelopes)
+        Ok(chunks)
     }
 
     pub async fn add_availability_listener(
