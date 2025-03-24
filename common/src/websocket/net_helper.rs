@@ -182,7 +182,7 @@ mod test {
                         }
                     },
                     "chunks": [],
-                    "ballast": 0
+                    "ballast": []
                 }
             ],
             "online": false,

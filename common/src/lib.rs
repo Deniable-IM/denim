@@ -1,3 +1,4 @@
+pub mod deniable;
 pub mod envelope;
 pub mod errors;
 pub mod protocol_address;

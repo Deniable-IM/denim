@@ -328,15 +328,14 @@ pub struct DenimMessage {
     pub chunks: Vec<DenimChunk>,
     pub counter: Option<i32>,
     pub q: Option<f32>,
-    pub ballast: i32,
-    pub extra_ballast: Option<i32>,
+    pub ballast: Vec<u8>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct DenimChunk {
     pub chunk: Vec<u8>,
-    pub flags: i32,
+    pub flags: i32, // Bit flag 1 is dummy, 2 is final
 }
 
 /// Used to upload any type of prekey along with a signature that is used
