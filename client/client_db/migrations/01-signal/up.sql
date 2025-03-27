@@ -58,4 +58,4 @@ CREATE TABLE Nicknames (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL UNIQUE,
   service_id TEXT NOT NULL
-)
+);

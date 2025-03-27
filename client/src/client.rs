@@ -12,6 +12,7 @@ use crate::{
         generic::{ProtocolStore, Storage},
     },
 };
+use async_std::sync::Mutex;
 use axum::http::StatusCode;
 use base64::{prelude::BASE64_STANDARD, Engine as _};
 use bincode::deserialize;
@@ -24,13 +25,18 @@ use common::{
     },
 };
 use core::str;
+use include_dir::{include_dir, Dir};
 use libsignal_core::{Aci, DeviceId, Pni, ProtocolAddress, ServiceId};
 use libsignal_protocol::{process_prekey_bundle, CiphertextMessage, IdentityKeyPair};
 use prost::Message;
 use rand::{rngs::OsRng, Rng};
-use sqlx::{migrate::MigrateDatabase, Sqlite, SqlitePool};
-use std::collections::HashMap;
+use rusqlite::Connection;
+use rusqlite_migration::Migrations;
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    collections::HashMap,
+    sync::{Arc, LazyLock},
+};
 
 pub struct Client<T: ClientDB, U: SignalServerAPI> {
     pub aci: Aci,
@@ -46,6 +52,10 @@ pub struct Client<T: ClientDB, U: SignalServerAPI> {
 const PROFILE_KEY_LENGTH: usize = 32;
 const MASTER_KEY_LENGTH: usize = 32;
 const PASSWORD_LENGTH: usize = 16;
+
+static MIGRATIONS_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/client_db/migrations");
+static MIGRATIONS: LazyLock<Migrations<'static>> =
+    LazyLock::new(|| Migrations::from_directory(&MIGRATIONS_DIR).unwrap());
 
 impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
     fn new(
@@ -66,22 +76,14 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
         }
     }
 
-    async fn connect_to_db(database_url: &str, create_db: bool) -> Result<SqlitePool> {
-        if create_db {
-            if !Sqlite::database_exists(database_url).await.unwrap_or(false) {
-                Sqlite::create_database(database_url).await.unwrap();
-            } else {
-                return Err(DatabaseError::AlreadyExists.into());
-            }
-        }
-        let pool = SqlitePool::connect(database_url).await.unwrap();
+    async fn connect_to_db(database_url: &str) -> Result<Connection> {
+        let mut conn = Connection::open(database_url).expect("Could not open database");
 
-        sqlx::migrate!("client_db/migrations")
-            .run(&pool)
-            .await
+        MIGRATIONS
+            .to_latest(&mut conn)
             .expect("Could not run migrations");
 
-        Ok(pool)
+        Ok(conn)
     }
 
     /// Register a new account with the server.
@@ -98,9 +100,11 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
         let pni_registration_id = OsRng.gen_range(1..16383);
         let aci_id_key_pair = IdentityKeyPair::generate(&mut csprng);
         let pni_id_key_pair = IdentityKeyPair::generate(&mut csprng);
-        let pool = Client::<T, U>::connect_to_db(database_url, true).await?;
-        let device = Device::new(pool);
+        let conn = Client::<T, U>::connect_to_db(database_url).await?;
+        let device = Arc::new(Mutex::new(Device::new(conn)));
         device
+            .lock()
+            .await
             .insert_account_key_information(aci_id_key_pair, aci_registration_id)
             .await
             .unwrap();
@@ -188,6 +192,8 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
 
         let contact_manager = ContactManager::new();
         device
+            .lock()
+            .await
             .insert_account_information(aci, pni, password.clone())
             .await
             .map_err(DatabaseError::from)?;
@@ -219,9 +225,11 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
         cert_path: &Option<String>,
         server_url: &str,
     ) -> Result<Client<Device, SignalServer>> {
-        let pool = Client::<T, U>::connect_to_db(database_url, false).await?;
-        let device = Device::new(pool);
+        let conn = Client::<T, U>::connect_to_db(database_url).await?;
+        let device = Arc::new(Mutex::new(Device::new(conn)));
         let contacts = device
+            .lock()
+            .await
             .load_contacts()
             .await
             .map(|contacts| {
@@ -232,10 +240,25 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
                 c
             })
             .map_err(DatabaseError::from)?;
-        let (one_time, signed, kyber) = device.get_key_ids().await.map_err(DatabaseError::from)?;
+        let (one_time, signed, kyber) = device
+            .lock()
+            .await
+            .get_key_ids()
+            .await
+            .map_err(DatabaseError::from)?;
 
-        let password = device.get_password().await.map_err(DatabaseError::from)?;
-        let aci = device.get_aci().await.map_err(DatabaseError::from)?;
+        let password = device
+            .lock()
+            .await
+            .get_password()
+            .await
+            .map_err(DatabaseError::from)?;
+        let aci = device
+            .lock()
+            .await
+            .get_aci()
+            .await
+            .map_err(DatabaseError::from)?;
 
         let mut server_api = SignalServer::new(cert_path, server_url);
 
@@ -245,9 +268,21 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
 
         server_api.create_auth_header(aci, password.clone(), 1.into());
 
+        let aci = device
+            .lock()
+            .await
+            .get_aci()
+            .await
+            .map_err(DatabaseError::from)?;
+        let pni = device
+            .lock()
+            .await
+            .get_pni()
+            .await
+            .map_err(DatabaseError::from)?;
         Ok(Client::new(
-            device.get_aci().await.map_err(DatabaseError::from)?,
-            device.get_pni().await.map_err(DatabaseError::from)?,
+            aci,
+            pni,
             ContactManager::new_with_contacts(contacts),
             server_api,
             KeyManager::new(signed + 1, kyber + 1, one_time + 1), // Adds 1 to prevent reusing key ids
@@ -269,6 +304,8 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
         let service_id = self
             .storage
             .device
+            .lock()
+            .await
             .get_service_id_by_nickname(alias)
             .await
             .map_err(DatabaseError::from)?;
@@ -400,12 +437,16 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
 
         self.storage
             .device
+            .lock()
+            .await
             .store_contact(contact)
             .await
             .map_err(DatabaseError::from)?;
 
         self.storage
             .device
+            .lock()
+            .await
             .insert_service_id_for_nickname(alias, &service_id)
             .await
             .map_err(|err| {
@@ -419,6 +460,8 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
     pub async fn has_contact(&mut self, alias: &str) -> bool {
         self.storage
             .device
+            .lock()
+            .await
             .get_service_id_by_nickname(alias)
             .await
             .is_ok()
@@ -429,6 +472,8 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
         let service_id = self
             .storage
             .device
+            .lock()
+            .await
             .get_service_id_by_nickname(alias)
             .await
             .map_err(DatabaseError::from)?;
@@ -439,6 +484,8 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
 
         self.storage
             .device
+            .lock()
+            .await
             .remove_contact(&service_id)
             .await
             .map_err(|err| DatabaseError::Custom(Box::new(err)).into())
@@ -448,6 +495,8 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
         let service_id = self
             .storage
             .device
+            .lock()
+            .await
             .get_service_id_by_nickname(alias)
             .await
             .map_err(DatabaseError::from)?;
@@ -463,6 +512,8 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
 
         self.storage
             .device
+            .lock()
+            .await
             .store_contact(contact)
             .await
             .map_err(|err| DatabaseError::Custom(Box::new(err)).into())
