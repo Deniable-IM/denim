@@ -1,3 +1,6 @@
+use std::sync::Arc;
+
+use async_std::sync::Mutex;
 use axum::async_trait;
 use libsignal_core::{Aci, Pni, ProtocolAddress, ServiceId};
 use libsignal_protocol::{
@@ -107,11 +110,11 @@ pub trait ClientDB {
 }
 
 pub struct DeviceIdentityKeyStore<T: ClientDB> {
-    db: T,
+    db: Arc<Mutex<T>>,
 }
 
 impl<T: ClientDB> DeviceIdentityKeyStore<T> {
-    pub fn new(db: T) -> Self {
+    pub fn new(db: Arc<Mutex<T>>) -> Self {
         Self { db }
     }
 }
@@ -120,6 +123,8 @@ impl<T: ClientDB> DeviceIdentityKeyStore<T> {
 impl<T: ClientDB> IdentityKeyStore for DeviceIdentityKeyStore<T> {
     async fn get_identity_key_pair(&self) -> Result<IdentityKeyPair, SignalProtocolError> {
         self.db
+            .lock()
+            .await
             .get_identity_key_pair()
             .await
             .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))
@@ -127,6 +132,8 @@ impl<T: ClientDB> IdentityKeyStore for DeviceIdentityKeyStore<T> {
 
     async fn get_local_registration_id(&self) -> Result<u32, SignalProtocolError> {
         self.db
+            .lock()
+            .await
             .get_local_registration_id()
             .await
             .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))
@@ -138,6 +145,8 @@ impl<T: ClientDB> IdentityKeyStore for DeviceIdentityKeyStore<T> {
         identity: &IdentityKey,
     ) -> Result<bool, SignalProtocolError> {
         self.db
+            .lock()
+            .await
             .save_identity(address, identity)
             .await
             .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))
@@ -150,6 +159,8 @@ impl<T: ClientDB> IdentityKeyStore for DeviceIdentityKeyStore<T> {
         direction: Direction,
     ) -> Result<bool, SignalProtocolError> {
         self.db
+            .lock()
+            .await
             .is_trusted_identity(address, identity, direction)
             .await
             .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))
@@ -160,6 +171,8 @@ impl<T: ClientDB> IdentityKeyStore for DeviceIdentityKeyStore<T> {
         address: &ProtocolAddress,
     ) -> Result<Option<IdentityKey>, SignalProtocolError> {
         self.db
+            .lock()
+            .await
             .get_identity(address)
             .await
             .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))
@@ -167,11 +180,11 @@ impl<T: ClientDB> IdentityKeyStore for DeviceIdentityKeyStore<T> {
 }
 
 pub struct DevicePreKeyStore<T: ClientDB> {
-    db: T,
+    db: Arc<Mutex<T>>,
 }
 
 impl<T: ClientDB> DevicePreKeyStore<T> {
-    pub fn new(db: T) -> Self {
+    pub fn new(db: Arc<Mutex<T>>) -> Self {
         Self { db }
     }
 }
@@ -180,6 +193,8 @@ impl<T: ClientDB> DevicePreKeyStore<T> {
 impl<T: ClientDB> PreKeyStore for DevicePreKeyStore<T> {
     async fn get_pre_key(&self, prekey_id: PreKeyId) -> Result<PreKeyRecord, SignalProtocolError> {
         self.db
+            .lock()
+            .await
             .get_pre_key(prekey_id)
             .await
             .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))
@@ -191,6 +206,8 @@ impl<T: ClientDB> PreKeyStore for DevicePreKeyStore<T> {
         record: &PreKeyRecord,
     ) -> Result<(), SignalProtocolError> {
         self.db
+            .lock()
+            .await
             .save_pre_key(prekey_id, record)
             .await
             .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))
@@ -198,6 +215,8 @@ impl<T: ClientDB> PreKeyStore for DevicePreKeyStore<T> {
 
     async fn remove_pre_key(&mut self, prekey_id: PreKeyId) -> Result<(), SignalProtocolError> {
         self.db
+            .lock()
+            .await
             .remove_pre_key(prekey_id)
             .await
             .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))
@@ -205,11 +224,11 @@ impl<T: ClientDB> PreKeyStore for DevicePreKeyStore<T> {
 }
 
 pub struct DeviceSignedPreKeyStore<T: ClientDB> {
-    db: T,
+    db: Arc<Mutex<T>>,
 }
 
 impl<T: ClientDB> DeviceSignedPreKeyStore<T> {
-    pub fn new(db: T) -> Self {
+    pub fn new(db: Arc<Mutex<T>>) -> Self {
         Self { db }
     }
 }
@@ -221,6 +240,8 @@ impl<T: ClientDB> SignedPreKeyStore for DeviceSignedPreKeyStore<T> {
         id: SignedPreKeyId,
     ) -> Result<SignedPreKeyRecord, SignalProtocolError> {
         self.db
+            .lock()
+            .await
             .get_signed_pre_key(id)
             .await
             .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))
@@ -232,6 +253,8 @@ impl<T: ClientDB> SignedPreKeyStore for DeviceSignedPreKeyStore<T> {
         record: &SignedPreKeyRecord,
     ) -> Result<(), SignalProtocolError> {
         self.db
+            .lock()
+            .await
             .save_signed_pre_key(id, record)
             .await
             .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))
@@ -239,11 +262,11 @@ impl<T: ClientDB> SignedPreKeyStore for DeviceSignedPreKeyStore<T> {
 }
 
 pub struct DeviceKyberPreKeyStore<T: ClientDB> {
-    db: T,
+    db: Arc<Mutex<T>>,
 }
 
 impl<T: ClientDB> DeviceKyberPreKeyStore<T> {
-    pub fn new(db: T) -> Self {
+    pub fn new(db: Arc<Mutex<T>>) -> Self {
         Self { db }
     }
 }
@@ -255,6 +278,8 @@ impl<T: ClientDB> KyberPreKeyStore for DeviceKyberPreKeyStore<T> {
         kyber_prekey_id: KyberPreKeyId,
     ) -> Result<KyberPreKeyRecord, SignalProtocolError> {
         self.db
+            .lock()
+            .await
             .get_kyber_pre_key(kyber_prekey_id)
             .await
             .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))
@@ -266,6 +291,8 @@ impl<T: ClientDB> KyberPreKeyStore for DeviceKyberPreKeyStore<T> {
         record: &KyberPreKeyRecord,
     ) -> Result<(), SignalProtocolError> {
         self.db
+            .lock()
+            .await
             .save_kyber_pre_key(kyber_prekey_id, record)
             .await
             .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))
@@ -280,11 +307,11 @@ impl<T: ClientDB> KyberPreKeyStore for DeviceKyberPreKeyStore<T> {
 }
 
 pub struct DeviceSessionStore<T: ClientDB> {
-    db: T,
+    db: Arc<Mutex<T>>,
 }
 
 impl<T: ClientDB> DeviceSessionStore<T> {
-    pub fn new(db: T) -> Self {
+    pub fn new(db: Arc<Mutex<T>>) -> Self {
         Self { db }
     }
 }
@@ -296,6 +323,8 @@ impl<T: ClientDB> SessionStore for DeviceSessionStore<T> {
         address: &ProtocolAddress,
     ) -> Result<Option<SessionRecord>, SignalProtocolError> {
         self.db
+            .lock()
+            .await
             .load_session(address)
             .await
             .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))
@@ -307,6 +336,8 @@ impl<T: ClientDB> SessionStore for DeviceSessionStore<T> {
         record: &SessionRecord,
     ) -> Result<(), SignalProtocolError> {
         self.db
+            .lock()
+            .await
             .store_session(address, record)
             .await
             .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))
@@ -314,11 +345,11 @@ impl<T: ClientDB> SessionStore for DeviceSessionStore<T> {
 }
 
 pub struct DeviceSenderKeyStore<T: ClientDB> {
-    db: T,
+    db: Arc<Mutex<T>>,
 }
 
 impl<T: ClientDB> DeviceSenderKeyStore<T> {
-    pub fn new(db: T) -> Self {
+    pub fn new(db: Arc<Mutex<T>>) -> Self {
         Self { db }
     }
 }
@@ -342,6 +373,8 @@ impl<T: ClientDB> SenderKeyStore for DeviceSenderKeyStore<T> {
         distribution_id: Uuid,
     ) -> Result<Option<SenderKeyRecord>, SignalProtocolError> {
         self.db
+            .lock()
+            .await
             .load_sender_key(sender, distribution_id)
             .await
             .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))

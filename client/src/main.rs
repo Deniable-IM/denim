@@ -41,14 +41,13 @@ async fn make_client(
     server_url: &str,
 ) -> Client<Device, SignalServer> {
     let db_path = client_db_path() + "/" + name + ".db";
-    let db_url = format!("sqlite://{}", db_path);
     let client = if Path::exists(Path::new(&db_path)) {
-        Client::<Device, SignalServer>::login(&db_url, certificate_path, server_url).await
+        Client::<Device, SignalServer>::login(&db_path, certificate_path, server_url).await
     } else {
         Client::<Device, SignalServer>::register(
             name,
             phone.into(),
-            &db_url,
+            &db_path,
             server_url,
             certificate_path,
         )

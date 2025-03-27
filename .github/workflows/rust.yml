@@ -43,13 +43,13 @@ jobs:
     - name: Build server
       run: DATABASE_URL=${{ secrets.DATABASE_URL_SERVER }} cargo build --bin server --verbose
     - name: Build client
-      run: DATABASE_URL=${{ secrets.DATABASE_URL_CLIENT }} cargo build --bin client --verbose
+      run: cargo build --bin client --verbose
     - name: Build common
       run: cargo build --lib --verbose
     - name: Run tests server
       run: DATABASE_URL=${{ secrets.DATABASE_URL_SERVER }} DATABASE_URL_TEST=${{ secrets.DATABASE_URL_SERVER_TEST }} REDIS_URL=${{ secrets.REDIS_URL }} cargo test --bin server --verbose
     - name: Run tests client
-      run: DATABASE_URL=${{ secrets.DATABASE_URL_CLIENT }} DATABASE_URL_TEST="sqlite::memory:" cargo test --bin client --verbose
+      run: cargo test --bin client --verbose
     - name: Run tests common
       run: cargo test --lib --verbose
 

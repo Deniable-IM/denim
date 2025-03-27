@@ -10,17 +10,17 @@ use libsignal_protocol::{
     KyberPreKeyRecord, PreKeyId, PreKeyRecord, PrivateKey, SenderKeyRecord, SessionRecord,
     SignalProtocolError, SignedPreKeyId, SignedPreKeyRecord,
 };
-use sqlx::SqlitePool;
+use rusqlite::{params, Connection, OptionalExtension};
 use uuid::Uuid;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Device {
-    pool: SqlitePool,
+    conn: Connection,
 }
 
 impl Device {
-    pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+    pub fn new(conn: Connection) -> Self {
+        Self { conn }
     }
 
     async fn insert_identity(
@@ -31,20 +31,21 @@ impl Device {
         let addr = format!("{}", address);
         let key = BASE64_STANDARD.encode(identity.serialize());
 
-        sqlx::query!(
-            r#"
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
             INSERT INTO DeviceIdentityKeyStore (address, identity_key)
-            VALUES (?, ?)
-            ON CONFLICT(address) DO UPDATE SET identity_key = ?
+            VALUES (?1, ?2)
+            ON CONFLICT(address) DO UPDATE SET identity_key = ?3
             "#,
-            addr,
-            key,
-            key
-        )
-        .execute(&self.pool)
-        .await
-        .map(|_| ())
-        .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        stmt.execute(params![addr, key, key])
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        Ok(())
     }
 }
 
@@ -61,19 +62,20 @@ impl ClientDB for Device {
         let aci = aci.service_id_string();
         let pni = pni.service_id_string();
 
-        sqlx::query!(
-            r#"
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
             INSERT INTO Identity (aci, pni, password)
-            VALUES (?, ?, ?)
+            VALUES (?1, ?2, ?3)
             "#,
-            aci,
-            pni,
-            password,
-        )
-        .execute(&self.pool)
-        .await
-        .map(|_| ())
-        .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        stmt.execute(params![aci, pni, password])
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        Ok(())
     }
 
     async fn insert_account_key_information(
@@ -84,24 +86,27 @@ impl ClientDB for Device {
         let pk = BASE64_STANDARD.encode(key_pair.identity_key().serialize());
         let sk = BASE64_STANDARD.encode(key_pair.private_key().serialize());
 
-        sqlx::query!(
-            r#"
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
             INSERT INTO IdentityKeys (public_key, private_key, registration_id)
-            VALUES (?, ?, ?)
+            VALUES (?1, ?2, ?3)
             "#,
-            pk,
-            sk,
-            registration_id,
-        )
-        .execute(&self.pool)
-        .await
-        .map(|_| ())
-        .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        stmt.execute(params![pk, sk, registration_id])
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        Ok(())
     }
 
     async fn get_key_ids(&self) -> Result<(u32, u32, u32), Self::Error> {
-        sqlx::query!(
-            r#"
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
             WITH max_pre_key_id_table AS (
                 SELECT
                     1 AS _id,
@@ -141,12 +146,15 @@ impl ClientDB for Device {
                 max_pre_key_id_table mpk
                 INNER JOIN max_signed_pre_key_id_table spk ON spk._id = mpk._id
                 INNER JOIN max_kyber_pre_key_id_table kpk ON kpk._id = mpk._id
-            "#
-        )
-        .fetch_one(&self.pool)
-        .await
-        .map(|row| (row.mpkid as u32, row.spkid as u32, row.kpkid as u32))
-        .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))
+            "#,
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        let row: (u32, u32, u32) = stmt
+            .query_row([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        Ok(row)
     }
 
     async fn store_contact(&self, contact: &Contact) -> Result<(), Self::Error> {
@@ -158,83 +166,93 @@ impl ClientDB for Device {
             .collect::<Vec<_>>()
             .join(",");
 
-        sqlx::query!(
-            r#"
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
             INSERT INTO Contacts(service_id, device_ids)
-            VALUES(?, ?)
-            ON CONFLICT(service_id) DO UPDATE SET device_ids = ?
+            VALUES(?1, ?2)
+            ON CONFLICT(service_id) DO UPDATE SET device_ids = ?3
             "#,
-            service_id,
-            device_ids,
-            device_ids,
-        )
-        .execute(&self.pool)
-        .await
-        .map(|_| ())
-        .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        stmt.execute(params![service_id, device_ids, device_ids])
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        Ok(())
     }
 
     async fn load_contacts(&self) -> Result<Vec<Contact>, Self::Error> {
-        match sqlx::query!(
-            r#"
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
             SELECT
                 service_id,
                 device_ids
             FROM
                 Contacts
-            "#
-        )
-        .fetch_all(&self.pool)
-        .await
+            "#,
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+        let mut rows = stmt
+            .query([])
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        let mut contacts = vec![];
+        while let Some(row) = rows
+            .next()
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?
         {
-            Ok(rows) => {
-                let mut contacts = vec![];
-                for row in rows {
-                    let mut device_ids = HashSet::new();
-                    if row.device_ids != "" {
-                        for device_id in row.device_ids.split(",") {
-                            device_ids.insert(DeviceId::from(device_id.parse::<u32>().map_err(
-                                |err| {
-                                    SignalProtocolError::InvalidArgument(format!(
-                                        "Could not parse device id: {err}"
-                                    ))
-                                },
-                            )?));
-                        }
-                    }
-                    contacts.push(Contact {
-                        service_id: ServiceId::parse_from_service_id_string(
-                            row.service_id.as_str(),
-                        )
-                        .ok_or(SignalProtocolError::InvalidArgument(format!(
-                            "Could not parse service_id: {}",
-                            row.service_id
-                        )))?,
-                        device_ids,
-                    });
+            let mut device_ids = HashSet::new();
+            let row_service_id: String = row
+                .get(0)
+                .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+            let row_device_ids: String = row
+                .get(1)
+                .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+            if row_device_ids != "" {
+                for device_id in row_device_ids.split(",") {
+                    device_ids.insert(DeviceId::from(device_id.parse::<u32>().map_err(|err| {
+                        SignalProtocolError::InvalidArgument(format!(
+                            "Could not parse device id: {err}"
+                        ))
+                    })?));
                 }
-                Ok(contacts)
             }
-            Err(err) => Err(SignalProtocolError::InvalidArgument(format!("{err}"))),
+            contacts.push(Contact {
+                service_id: ServiceId::parse_from_service_id_string(row_service_id.as_str())
+                    .ok_or(SignalProtocolError::InvalidArgument(format!(
+                        "Could not parse service_id: {}",
+                        row_service_id
+                    )))?,
+                device_ids,
+            });
         }
+
+        Ok(contacts)
     }
 
     async fn remove_contact(&self, service_id: &ServiceId) -> Result<(), Self::Error> {
         let name = service_id.service_id_string();
 
-        sqlx::query!(
-            r#"
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
             DELETE FROM
                 Contacts
             WHERE
-                service_id = ?
+                service_id = ?1
             "#,
-            name
-        )
-        .execute(&self.pool)
-        .await
-        .map(|_| ())
-        .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        stmt.execute(params![name])
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        Ok(())
     }
 
     async fn insert_service_id_for_nickname(
@@ -243,87 +261,98 @@ impl ClientDB for Device {
         service_id: &ServiceId,
     ) -> Result<(), Self::Error> {
         let service_id = service_id.service_id_string();
-        sqlx::query!(
-            r#"
+
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
             INSERT INTO Nicknames(name, service_id)
-            VALUES(?, ?)
+            VALUES(?1, ?2)
             "#,
-            nickname,
-            service_id,
-        )
-        .execute(&self.pool)
-        .await
-        .map(|_| ())
-        .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        stmt.execute(params![nickname, service_id])
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        Ok(())
     }
 
     async fn get_service_id_by_nickname(&self, nickname: &str) -> Result<ServiceId, Self::Error> {
-        match sqlx::query!(
-            r#"
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
             SELECT
                 service_id
             FROM
                 Nicknames
             WHERE
-                name = ?
+                name = ?1
             "#,
-            nickname
-        )
-        .fetch_one(&self.pool)
-        .await
-        {
-            Ok(row) => Ok(
-                ServiceId::parse_from_service_id_string(row.service_id.as_str()).ok_or(
-                    SignalProtocolError::InvalidArgument(format!("Could not parse service_id")),
-                )?,
-            ),
-            Err(err) => Err(SignalProtocolError::InvalidArgument(format!("{err}"))),
-        }
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        let row: String = stmt
+            .query_row([nickname], |row| Ok(row.get(0)?))
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        ServiceId::parse_from_service_id_string(&row).ok_or(SignalProtocolError::InvalidArgument(
+            format!("Could not parse service_id"),
+        ))
     }
 
     async fn get_identity_key_pair(&self) -> Result<IdentityKeyPair, Self::Error> {
-        match sqlx::query!(
-            r#"
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
             SELECT
                 public_key, private_key
             FROM
                 IdentityKeys 
-            "#
-        )
-        .fetch_one(&self.pool)
-        .await
-        {
-            Ok(row) => Ok(IdentityKeyPair::new(
-                IdentityKey::decode(
-                    &BASE64_STANDARD
-                        .decode(row.public_key)
-                        .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))?,
-                )
-                .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))?,
-                PrivateKey::deserialize(
-                    &BASE64_STANDARD
-                        .decode(row.private_key)
-                        .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))?,
-                )
-                .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))?,
-            )),
-            Err(err) => Err(SignalProtocolError::InvalidArgument(format!("{}", err))),
-        }
+            "#,
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        let row: (String, String) = stmt
+            .query_row([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        Ok(IdentityKeyPair::new(
+            IdentityKey::decode(
+                &BASE64_STANDARD
+                    .decode(row.0)
+                    .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))?,
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))?,
+            PrivateKey::deserialize(
+                &BASE64_STANDARD
+                    .decode(row.1)
+                    .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))?,
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))?,
+        ))
     }
 
     async fn get_local_registration_id(&self) -> Result<u32, Self::Error> {
-        sqlx::query!(
-            r#"
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
             SELECT
                 registration_id
             FROM
                 IdentityKeys
-            "#
-        )
-        .fetch_one(&self.pool)
-        .await
-        .map(|row| row.registration_id as u32)
-        .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))
+            "#,
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        let row: u32 = stmt
+            .query_row([], |row| Ok(row.get(0)?))
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        Ok(row)
     }
     async fn save_identity(
         &mut self,
@@ -369,57 +398,65 @@ impl ClientDB for Device {
     ) -> Result<Option<IdentityKey>, Self::Error> {
         let addr = format!("{}", address);
 
-        match sqlx::query!(
-            r#"
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
             SELECT
                 identity_key
             FROM
                 DeviceIdentityKeyStore
             WHERE
-                address = ?
+                address = ?1
             "#,
-            addr
-        )
-        .fetch_one(&self.pool)
-        .await
-        {
-            Ok(row) => Ok(Some(
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        let row: Option<String> = stmt
+            .query_row([addr], |row| Ok(row.get(0)?))
+            .optional()
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        match row {
+            Some(identity_key) => Ok(Some(
                 BASE64_STANDARD
-                    .decode(row.identity_key)
+                    .decode(identity_key)
                     .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))?
                     .as_slice()
                     .try_into()?,
             )),
-            Err(_) => Ok(None),
+            None => Ok(None),
         }
     }
 
     async fn get_pre_key(&self, prekey_id: PreKeyId) -> Result<PreKeyRecord, Self::Error> {
         let id: u32 = prekey_id.into();
 
-        match sqlx::query!(
-            r#"
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
             SELECT
                 pre_key_record
             FROM
                 DevicePreKeyStore
             WHERE
-                pre_key_id = ?
+                pre_key_id = ?1
             "#,
-            id
-        )
-        .fetch_one(&self.pool)
-        .await
-        {
-            Ok(row) => PreKeyRecord::deserialize(
-                BASE64_STANDARD
-                    .decode(row.pre_key_record)
-                    .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))?
-                    .as_slice(),
             )
-            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err))),
-            Err(_) => Err(SignalProtocolError::InvalidPreKeyId),
-        }
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        let row: String = stmt
+            .query_row([id], |row| Ok(row.get(0)?))
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        PreKeyRecord::deserialize(
+            BASE64_STANDARD
+                .decode(row)
+                .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))?
+                .as_slice(),
+        )
+        .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))
     }
 
     async fn save_pre_key(
@@ -430,38 +467,42 @@ impl ClientDB for Device {
         let id: u32 = prekey_id.into();
         let rec = BASE64_STANDARD.encode(record.serialize()?);
 
-        sqlx::query!(
-            r#"
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
             INSERT INTO DevicePreKeyStore (pre_key_id, pre_key_record)
-            VALUES (?, ?)
-            ON CONFLICT(pre_key_id) DO UPDATE SET pre_key_record = ?
+            VALUES (?1, ?2)
+            ON CONFLICT(pre_key_id) DO UPDATE SET pre_key_record = ?3
             "#,
-            id,
-            rec,
-            rec
-        )
-        .execute(&self.pool)
-        .await
-        .map(|_| ())
-        .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        stmt.execute(params![id, rec, rec])
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        Ok(())
     }
 
     async fn remove_pre_key(&mut self, prekey_id: PreKeyId) -> Result<(), Self::Error> {
         let id: u32 = prekey_id.into();
 
-        sqlx::query!(
-            r#"
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
             DELETE FROM
                 DevicePreKeyStore
             WHERE
-                pre_key_id = ?
+                pre_key_id = ?1
             "#,
-            id
-        )
-        .execute(&self.pool)
-        .await
-        .map(|_| ())
-        .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        stmt.execute(params![id])
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        Ok(())
     }
 
     async fn get_signed_pre_key(
@@ -470,29 +511,31 @@ impl ClientDB for Device {
     ) -> Result<SignedPreKeyRecord, Self::Error> {
         let sid: u32 = id.into();
 
-        match sqlx::query!(
-            r#"
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
             SELECT
                 signed_pre_key_record
             FROM
                 DeviceSignedPreKeyStore
             WHERE
-                signed_pre_key_id = ?
+                signed_pre_key_id = ?1
             "#,
-            sid
-        )
-        .fetch_one(&self.pool)
-        .await
-        {
-            Ok(row) => SignedPreKeyRecord::deserialize(
-                BASE64_STANDARD
-                    .decode(row.signed_pre_key_record)
-                    .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?
-                    .as_slice(),
             )
-            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err))),
-            Err(_) => Err(SignalProtocolError::InvalidPreKeyId),
-        }
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        let row: String = stmt
+            .query_row([sid], |row| Ok(row.get(0)?))
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        SignedPreKeyRecord::deserialize(
+            BASE64_STANDARD
+                .decode(row)
+                .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?
+                .as_slice(),
+        )
+        .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))
     }
 
     async fn save_signed_pre_key(
@@ -503,20 +546,21 @@ impl ClientDB for Device {
         let id: u32 = id.into();
         let rec = BASE64_STANDARD.encode(record.serialize()?);
 
-        sqlx::query!(
-            r#"
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
             INSERT INTO DeviceSignedPreKeyStore (signed_pre_key_id, signed_pre_key_record)
-            VALUES (?, ?)
-            ON CONFLICT(signed_pre_key_id) DO UPDATE SET signed_pre_key_record = ?
+            VALUES (?1, ?2)
+            ON CONFLICT(signed_pre_key_id) DO UPDATE SET signed_pre_key_record = ?3
             "#,
-            id,
-            rec,
-            rec
-        )
-        .execute(&self.pool)
-        .await
-        .map(|_| ())
-        .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        stmt.execute(params![id, rec, rec])
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        Ok(())
     }
 
     async fn get_kyber_pre_key(
@@ -525,28 +569,30 @@ impl ClientDB for Device {
     ) -> Result<KyberPreKeyRecord, Self::Error> {
         let id: u32 = kyber_prekey_id.into();
 
-        match sqlx::query!(
-            r#"
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
             SELECT
                 kyber_pre_key_record
             FROM
                 DeviceKyberPreKeyStore
             WHERE
-                kyber_pre_key_id = ?
+                kyber_pre_key_id = ?1
             "#,
-            id
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        let row: String = stmt
+            .query_row([id], |row| Ok(row.get(0)?))
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        KyberPreKeyRecord::deserialize(
+            BASE64_STANDARD
+                .decode(row)
+                .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?
+                .as_slice(),
         )
-        .fetch_one(&self.pool)
-        .await
-        {
-            Ok(row) => KyberPreKeyRecord::deserialize(
-                BASE64_STANDARD
-                    .decode(row.kyber_pre_key_record)
-                    .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?
-                    .as_slice(),
-            ),
-            Err(_) => Err(SignalProtocolError::InvalidKyberPreKeyId),
-        }
     }
 
     async fn save_kyber_pre_key(
@@ -557,51 +603,60 @@ impl ClientDB for Device {
         let id: u32 = kyber_prekey_id.into();
         let rec = BASE64_STANDARD.encode(record.serialize()?);
 
-        sqlx::query!(
-            r#"
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
             INSERT INTO DeviceKyberPreKeyStore (kyber_pre_key_id, kyber_pre_key_record)
-            VALUES (?, ?)
-            ON CONFLICT(kyber_pre_key_id) DO UPDATE SET kyber_pre_key_record = ?
+            VALUES (?1, ?2)
+            ON CONFLICT(kyber_pre_key_id) DO UPDATE SET kyber_pre_key_record = ?3
             "#,
-            id,
-            rec,
-            rec
-        )
-        .execute(&self.pool)
-        .await
-        .map(|_| ())
-        .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        stmt.execute(params![id, rec, rec])
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        Ok(())
     }
+
     async fn load_session(
         &self,
         address: &ProtocolAddress,
     ) -> Result<Option<SessionRecord>, Self::Error> {
         let addr = format!("{}", address);
 
-        match sqlx::query!(
-            r#"
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
             SELECT
                 session_record
             FROM
                 DeviceSessionStore
             WHERE
-                address = ?
+                address = ?1
             "#,
-            addr
-        )
-        .fetch_one(&self.pool)
-        .await
-        {
-            Ok(row) => SessionRecord::deserialize(
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        let row: Option<String> = stmt
+            .query_row([addr], |row| Ok(row.get(0)?))
+            .optional()
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        match row {
+            Some(session_record) => SessionRecord::deserialize(
                 BASE64_STANDARD
-                    .decode(row.session_record)
+                    .decode(session_record)
                     .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?
                     .as_slice(),
             )
             .map(Some),
-            Err(_) => Ok(None),
+            None => Ok(None),
         }
     }
+
     async fn store_session(
         &mut self,
         address: &ProtocolAddress,
@@ -610,20 +665,21 @@ impl ClientDB for Device {
         let addr = format!("{}", address);
         let rec = BASE64_STANDARD.encode(record.serialize()?);
 
-        sqlx::query!(
-            r#"
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
             INSERT INTO DeviceSessionStore (address, session_record)
-            VALUES (?, ?)
-            ON CONFLICT(address) DO UPDATE SET session_record = ?
+            VALUES (?1, ?2)
+            ON CONFLICT(address) DO UPDATE SET session_record = ?3
             "#,
-            addr,
-            rec,
-            rec
-        )
-        .execute(&self.pool)
-        .await
-        .map(|_| ())
-        .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        stmt.execute(params![addr, rec, rec])
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        Ok(())
     }
     async fn store_sender_key(
         &mut self,
@@ -634,21 +690,23 @@ impl ClientDB for Device {
         let addr = format!("{}:{}", sender, distribution_id);
         let rec = BASE64_STANDARD.encode(record.serialize()?);
 
-        sqlx::query!(
-            r#"
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
             INSERT INTO DeviceSenderKeyStore (address, sender_key_record)
-            VALUES (?, ?)
-            ON CONFLICT(address) DO UPDATE SET sender_key_record = ?
+            VALUES (?1, ?2)
+            ON CONFLICT(address) DO UPDATE SET sender_key_record = ?3
             "#,
-            addr,
-            rec,
-            rec
-        )
-        .execute(&self.pool)
-        .await
-        .map(|_| ())
-        .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        stmt.execute(params![addr, rec, rec])
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        Ok(())
     }
+
     async fn load_sender_key(
         &mut self,
         sender: &ProtocolAddress,
@@ -656,129 +714,152 @@ impl ClientDB for Device {
     ) -> Result<Option<SenderKeyRecord>, Self::Error> {
         let addr = format!("{}:{}", sender, distribution_id);
 
-        match sqlx::query!(
-            r#"
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
             SELECT
                 sender_key_record
             FROM
                 DeviceSenderKeyStore
             WHERE
-                address = ?
+                address = ?1
             "#,
-            addr
-        )
-        .fetch_one(&self.pool)
-        .await
-        {
-            Ok(row) => SenderKeyRecord::deserialize(
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        let row: Option<String> = stmt
+            .query_row([addr], |row| Ok(row.get(0)?))
+            .optional()
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        match row {
+            Some(sender_key_record) => SenderKeyRecord::deserialize(
                 BASE64_STANDARD
-                    .decode(row.sender_key_record)
+                    .decode(sender_key_record)
                     .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?
                     .as_slice(),
             )
             .map(Some),
-            Err(_) => Ok(None),
+            None => Ok(None),
         }
     }
 
     async fn set_password(&mut self, new_password: String) -> Result<(), Self::Error> {
-        sqlx::query!(
-            r#"
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
             UPDATE Identity
-            SET password = ?
+            SET password = ?1
             "#,
-            new_password
-        )
-        .execute(&self.pool)
-        .await
-        .map(|_| ())
-        .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        stmt.execute(params![new_password])
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        Ok(())
     }
+
     async fn get_password(&self) -> Result<String, Self::Error> {
-        sqlx::query!(
-            r#"
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
             SELECT
                 password
             FROM
                 Identity
-            "#
-        )
-        .fetch_one(&self.pool)
-        .await
-        .map(|row| row.password)
-        .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))
+            "#,
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        let row: String = stmt
+            .query_row([], |row| Ok(row.get(0)?))
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        Ok(row)
     }
+
     async fn set_aci(&mut self, new_aci: Aci) -> Result<(), Self::Error> {
         let new_aci = new_aci.service_id_string();
 
-        sqlx::query!(
-            r#"
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
             UPDATE Identity
-            SET aci = ?
+            SET aci = ?1
             "#,
-            new_aci
-        )
-        .execute(&self.pool)
-        .await
-        .map(|_| ())
-        .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        stmt.execute(params![new_aci])
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        Ok(())
     }
+
     async fn get_aci(&self) -> Result<Aci, Self::Error> {
-        match sqlx::query!(
-            r#"
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
             SELECT
                 aci
             FROM
                 Identity
-            "#
-        )
-        .fetch_one(&self.pool)
-        .await
-        {
-            Ok(row) => Ok(Aci::parse_from_service_id_string(row.aci.as_str()).ok_or(
-                SignalProtocolError::InvalidArgument(format!(
-                    "Could not convert {} to aci",
-                    row.aci
-                )),
-            )?),
-            Err(err) => Err(SignalProtocolError::InvalidArgument(format!("{}", err))),
-        }
+            "#,
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        let row: String = stmt
+            .query_row([], |row| Ok(row.get(0)?))
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        Ok(Aci::parse_from_service_id_string(row.as_str()).ok_or(
+            SignalProtocolError::InvalidArgument(format!("Could not convert {} to aci", row)),
+        )?)
     }
     async fn set_pni(&mut self, new_pni: Pni) -> Result<(), Self::Error> {
         let new_pni = new_pni.service_id_string();
 
-        sqlx::query!(
-            r#"
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
             UPDATE Identity
-            SET pni = ?
+            SET pni = ?1
             "#,
-            new_pni
-        )
-        .execute(&self.pool)
-        .await
-        .map(|_| ())
-        .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        stmt.execute(params![new_pni])
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        Ok(())
     }
     async fn get_pni(&self) -> Result<Pni, Self::Error> {
-        match sqlx::query!(
-            r#"
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
             SELECT
                 pni
             FROM
                 Identity
-            "#
-        )
-        .fetch_one(&self.pool)
-        .await
-        {
-            Ok(row) => Ok(Pni::parse_from_service_id_string(row.pni.as_str()).ok_or(
-                SignalProtocolError::InvalidArgument(format!(
-                    "Could not convert {} to pni",
-                    row.pni
-                )),
-            )?),
-            Err(err) => Err(SignalProtocolError::InvalidArgument(format!("{}", err))),
-        }
+            "#,
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        let row: String = stmt
+            .query_row([], |row| Ok(row.get(0)?))
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        Ok(Pni::parse_from_service_id_string(row.as_str()).ok_or(
+            SignalProtocolError::InvalidArgument(format!("Could not convert {} to pni", row)),
+        )?)
     }
 }
 
@@ -795,33 +876,37 @@ mod device_protocol_test {
         },
         test_utils::user::{new_contact, new_protocol_address, new_rand_number, new_service_id},
     };
+    use async_std::sync::Mutex;
+    use include_dir::{include_dir, Dir};
     use libsignal_protocol::{
         Direction, GenericSignedPreKey, IdentityKeyPair, IdentityKeyStore, KyberPreKeyStore,
         PreKeyStore, SessionRecord, SessionStore, SignedPreKeyStore,
     };
     use rand::rngs::OsRng;
-    use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
-    use std::collections::HashMap;
+    use rusqlite::Connection;
+    use rusqlite_migration::Migrations;
+    use std::{
+        collections::HashMap,
+        sync::{Arc, LazyLock},
+    };
 
-    async fn connect() -> SqlitePool {
-        dotenv::dotenv().ok();
-        let db_url = std::env::var("DATABASE_URL_TEST")
-            .expect("Expected to read database url from .env file");
-        let pool = SqlitePoolOptions::new()
-            .connect(&db_url)
-            .await
-            .expect("Could not connect to database");
-        sqlx::migrate!("client_db/migrations")
-            .run(&pool)
-            .await
-            .unwrap();
+    static MIGRATIONS_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/client_db/migrations");
+    static MIGRATIONS: LazyLock<Migrations<'static>> =
+        LazyLock::new(|| Migrations::from_directory(&MIGRATIONS_DIR).unwrap());
 
-        pool
+    async fn connect() -> Connection {
+        let mut conn = Connection::open_in_memory().expect("Could not open database");
+
+        MIGRATIONS
+            .to_latest(&mut conn)
+            .expect("Could not run migrations");
+
+        conn
     }
 
     #[tokio::test]
     async fn save_and_get_identity_test() {
-        let device = Device::new(connect().await);
+        let device = Arc::new(Mutex::new(Device::new(connect().await)));
         let mut device_identity_key_store = DeviceIdentityKeyStore::new(device);
         let address = new_protocol_address();
         let other_key_pair = IdentityKeyPair::generate(&mut OsRng);
@@ -883,7 +968,7 @@ mod device_protocol_test {
     }
     #[tokio::test]
     async fn is_trusted_identity_test() {
-        let device = Device::new(connect().await);
+        let device = Arc::new(Mutex::new(Device::new(connect().await)));
         let mut device_identity_key_store = DeviceIdentityKeyStore::new(device);
         let address = new_protocol_address();
         let other_key_pair = IdentityKeyPair::generate(&mut OsRng);
@@ -923,7 +1008,7 @@ mod device_protocol_test {
     #[tokio::test]
     async fn save_and_get_pre_key_test() {
         let mut key_man = KeyManager::default();
-        let device = Device::new(connect().await);
+        let device = Arc::new(Mutex::new(Device::new(connect().await)));
         let mut device_pre_key_store = DevicePreKeyStore::new(device);
         let pre_key_record = key_man
             .generate_pre_key(&mut device_pre_key_store, &mut OsRng)
@@ -955,7 +1040,7 @@ mod device_protocol_test {
     #[tokio::test]
     async fn remove_pre_key_test() {
         let mut key_man = KeyManager::default();
-        let device = Device::new(connect().await);
+        let device = Arc::new(Mutex::new(Device::new(connect().await)));
         let mut device_pre_key_store = DevicePreKeyStore::new(device);
         let pre_key_record = key_man
             .generate_pre_key(&mut device_pre_key_store, &mut OsRng)
@@ -985,11 +1070,10 @@ mod device_protocol_test {
 
     #[tokio::test]
     async fn get_and_save_signed_pre_key_test() {
-        let pool = connect().await;
-
-        let device = Device::new(pool.clone());
-
+        let device = Arc::new(Mutex::new(Device::new(connect().await)));
         device
+            .lock()
+            .await
             .insert_account_key_information(
                 IdentityKeyPair::generate(&mut OsRng),
                 new_rand_number(),
@@ -1038,11 +1122,11 @@ mod device_protocol_test {
 
     #[tokio::test]
     async fn get_and_save_kyber_pre_key_test() {
-        let pool = connect().await;
-
-        let device = Device::new(pool.clone());
+        let device = Arc::new(Mutex::new(Device::new(connect().await)));
 
         device
+            .lock()
+            .await
             .insert_account_key_information(
                 IdentityKeyPair::generate(&mut OsRng),
                 new_rand_number(),
@@ -1097,7 +1181,7 @@ mod device_protocol_test {
 
     #[tokio::test]
     async fn load_and_store_session_test() {
-        let device = Device::new(connect().await);
+        let device = Arc::new(Mutex::new(Device::new(connect().await)));
         let mut device_session_store = DeviceSessionStore::new(device);
         let address = new_protocol_address();
         let record = SessionRecord::new_fresh();
@@ -1129,11 +1213,11 @@ mod device_protocol_test {
 
     #[tokio::test]
     async fn insert_and_get_key_ids() {
-        let pool = connect().await;
-
-        let device = Device::new(pool.clone());
+        let device = Arc::new(Mutex::new(Device::new(connect().await)));
 
         device
+            .lock()
+            .await
             .insert_account_key_information(
                 IdentityKeyPair::generate(&mut OsRng),
                 new_rand_number(),
@@ -1221,7 +1305,7 @@ mod device_protocol_test {
             .await
             .unwrap();
 
-        let (pkidmax, spkidmax, kpkidmax) = device.get_key_ids().await.unwrap();
+        let (pkidmax, spkidmax, kpkidmax) = device.lock().await.get_key_ids().await.unwrap();
 
         assert_eq!(pkidmax, 0);
         assert_eq!(spkidmax, 1);
@@ -1230,11 +1314,11 @@ mod device_protocol_test {
 
     #[tokio::test]
     async fn remove_key_and_get_ids_test() {
-        let pool = connect().await;
-
-        let device = Device::new(pool.clone());
+        let device = Arc::new(Mutex::new(Device::new(connect().await)));
 
         device
+            .lock()
+            .await
             .insert_account_key_information(
                 IdentityKeyPair::generate(&mut OsRng),
                 new_rand_number(),
@@ -1334,7 +1418,7 @@ mod device_protocol_test {
             .await
             .unwrap();
 
-        let (pkidmax, spkidmax, kpkidmax) = device.get_key_ids().await.unwrap();
+        let (pkidmax, spkidmax, kpkidmax) = device.lock().await.get_key_ids().await.unwrap();
 
         assert_eq!(pkidmax, 1);
         assert_eq!(spkidmax, 1);
@@ -1343,26 +1427,37 @@ mod device_protocol_test {
 
     #[tokio::test]
     async fn store_and_load_contact() {
-        // store_contact
-        // load_contact
-        let device = Device::new(connect().await);
+        let device = Arc::new(Mutex::new(Device::new(connect().await)));
 
         let contacts = vec![new_contact(), new_contact(), new_contact()];
 
-        device.store_contact(&contacts[0]).await.unwrap();
-        device.store_contact(&contacts[1]).await.unwrap();
-        device.store_contact(&contacts[2]).await.unwrap();
+        device
+            .lock()
+            .await
+            .store_contact(&contacts[0])
+            .await
+            .unwrap();
+        device
+            .lock()
+            .await
+            .store_contact(&contacts[1])
+            .await
+            .unwrap();
+        device
+            .lock()
+            .await
+            .store_contact(&contacts[2])
+            .await
+            .unwrap();
 
-        let retrived_contacts = device.load_contacts().await.unwrap();
+        let retrived_contacts = device.lock().await.load_contacts().await.unwrap();
 
         assert_eq!(contacts, retrived_contacts);
     }
 
     #[tokio::test]
     async fn insert_and_get_address_by_nickname() {
-        // insert_address_for_nickname
-        // get_address_by_nickname
-        let device = Device::new(connect().await);
+        let device = Arc::new(Device::new(connect().await));
 
         let nicknames = vec!["Alice", "Bob", "Charlie"];
 

@@ -41,17 +41,9 @@ cargo run
 ```
 HTTPS_SERVER_URL=https://localhost:443
 HTTP_SERVER_URL=http://localhost:80
-DATABASE_URL=sqlite://./client/client_db/dev.db
-DATABASE_URL_TEST=sqlite::memory:
 CERT_PATH=../server/cert/rootCA.crt
 ```
-3. Go into `client/client_db`
-4. Execute the following command
-```zsh
-cargo sqlx database create -D sqlite://dev.db && cargo sqlx migrate run -D sqlite://dev.db
-```
-5. Go back into `client`
-6. Start the client by running the following command
+3. Start the client by running the following command
 ```zsh
 cargo run
 ```

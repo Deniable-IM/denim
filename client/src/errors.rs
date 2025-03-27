@@ -156,7 +156,6 @@ impl From<ParseProtocolAddressError> for SignalClientError {
 
 #[derive(Debug, Display)]
 pub enum DatabaseError {
-    AlreadyExists,
     Custom(Box<dyn std::error::Error + 'static>),
 }
 
