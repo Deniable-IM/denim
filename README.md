@@ -1,4 +1,4 @@
-# signal [![Rust](https://github.com/Diesel-Jeans/signal/actions/workflows/rust.yml/badge.svg)](https://github.com/Diesel-Jeans/signal/actions/workflows/rust.yml)
+# denim [![Rust](https://github.com/Deniable-IM/denim/actions/workflows/rust.yml/badge.svg)](https://github.com/Deniable-IM/denim/actions/workflows/rust.yml)
 
 ## Setup
 ### Preliminaries
@@ -45,9 +45,9 @@ CERT_PATH=../server/cert/rootCA.crt
 ```
 3. Start the client by running the following command
 ```zsh
-cargo run
+cargo run <name> <phone number>
 ```
-As an example, two clients should then be created and messages between them will be send.
+As an example, two clients should then be created and messages between them will be sent.
 
 ### TLS Configuration
 If you do not want to use HTTPS and WSS you can run the server and client with `--no-tls` and then they will just communicate over HTTP and WS
@@ -57,11 +57,8 @@ If you do not want to use HTTPS and WSS you can run the server and client with `
 1. Go into `server`
 2. Close the database and run the following command
 ```zsh
-docker-compose down -v
+docker-compose down
 ```
 
 ### Resetting the client database
-1. Go into `client/client_db` and run the following command
-```zsh
-rm alice.db* && rm bob.db*
-```
+1. Go into `client/client_db` and remove .db files

@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use super::database::ClientDB;
-use crate::contact_manager::Contact;
+use crate::contact_manager::{Contact, ContactName};
 use axum::async_trait;
 use base64::{prelude::BASE64_STANDARD, Engine as _};
 use libsignal_core::{Aci, DeviceId, Pni, ProtocolAddress, ServiceId};
@@ -253,6 +253,42 @@ impl ClientDB for Device {
             .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
 
         Ok(())
+    }
+    async fn get_all_nicknames(&self) -> Result<Vec<ContactName>, Self::Error> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
+            SELECT
+                name,
+                service_id
+            FROM
+                Nicknames
+            "#,
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(ContactName {
+                    name: row.get(0)?,
+                    service_id: ServiceId::parse_from_service_id_string(
+                        row.get::<_, String>(1)?.as_str(),
+                    )
+                    .expect("Should service id"),
+                })
+            })
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        let mut contact_names = Vec::new();
+        for contact_name in rows {
+            contact_names.push(
+                contact_name
+                    .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?,
+            );
+        }
+
+        Ok(contact_names)
     }
 
     async fn insert_service_id_for_nickname(
@@ -657,6 +693,43 @@ impl ClientDB for Device {
         }
     }
 
+    async fn load_deniable_session(
+        &self,
+        address: &ProtocolAddress,
+    ) -> Result<Option<SessionRecord>, Self::Error> {
+        let addr = format!("{}", address);
+
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
+            SELECT
+                session_record
+            FROM
+                DeniableDeviceSessionStore
+            WHERE
+                address = ?1
+            "#,
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        let row: Option<String> = stmt
+            .query_row([addr], |row| Ok(row.get(0)?))
+            .optional()
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        match row {
+            Some(session_record) => SessionRecord::deserialize(
+                BASE64_STANDARD
+                    .decode(session_record)
+                    .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?
+                    .as_slice(),
+            )
+            .map(Some),
+            None => Ok(None),
+        }
+    }
+
     async fn store_session(
         &mut self,
         address: &ProtocolAddress,
@@ -681,6 +754,32 @@ impl ClientDB for Device {
 
         Ok(())
     }
+
+    async fn store_deniable_session(
+        &mut self,
+        address: &ProtocolAddress,
+        record: &SessionRecord,
+    ) -> Result<(), Self::Error> {
+        let addr = format!("{}", address);
+        let rec = BASE64_STANDARD.encode(record.serialize()?);
+
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
+            INSERT INTO DeniableDeviceSessionStore (address, session_record)
+            VALUES (?1, ?2)
+            ON CONFLICT(address) DO UPDATE SET session_record = ?3
+            "#,
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        stmt.execute(params![addr, rec, rec])
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        Ok(())
+    }
+
     async fn store_sender_key(
         &mut self,
         sender: &ProtocolAddress,
@@ -822,6 +921,7 @@ impl ClientDB for Device {
             SignalProtocolError::InvalidArgument(format!("Could not convert {} to aci", row)),
         )?)
     }
+
     async fn set_pni(&mut self, new_pni: Pni) -> Result<(), Self::Error> {
         let new_pni = new_pni.service_id_string();
 
@@ -840,6 +940,7 @@ impl ClientDB for Device {
 
         Ok(())
     }
+
     async fn get_pni(&self) -> Result<Pni, Self::Error> {
         let mut stmt = self
             .conn
@@ -860,6 +961,100 @@ impl ClientDB for Device {
         Ok(Pni::parse_from_service_id_string(row.as_str()).ok_or(
             SignalProtocolError::InvalidArgument(format!("Could not convert {} to pni", row)),
         )?)
+    }
+
+    async fn get_deniable_message(&self) -> Result<(u32, Vec<u8>), Self::Error> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
+            SELECT
+                id, content
+            FROM
+                DeniableMessage
+            "#,
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        let row: (u32, Vec<u8>) = stmt
+            .query_row([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+        Ok(row)
+    }
+
+    async fn get_deniable_message_by_id(&self, message_id: u32) -> Result<Vec<u8>, Self::Error> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
+            SELECT
+                content
+            FROM
+                DeniableMessage
+            WHERE
+                id = ?1
+            "#,
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        let row: Vec<u8> = stmt
+            .query_row([message_id], |row| Ok(row.get(0)?))
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+        Ok(row)
+    }
+
+    async fn store_deniable_message(
+        &self,
+        message_id: Option<u32>,
+        message: Vec<u8>,
+    ) -> Result<(), Self::Error> {
+        if let Some(id) = message_id {
+            let mut stmt = self
+                .conn
+                .prepare(
+                    r#"
+                UPDATE DeniableMessage
+                SET content = ?1
+                WHERE id = ?2
+                "#,
+                )
+                .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+            stmt.execute(params![message, id])
+                .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+        } else {
+            let mut stmt = self
+                .conn
+                .prepare(
+                    r#"
+                INSERT INTO DeniableMessage (content)
+                VALUES (?1)
+                "#,
+                )
+                .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+            stmt.execute(params![message])
+                .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+        }
+        Ok(())
+    }
+
+    async fn remove_deniable_message(&self, message_id: u32) -> Result<(), Self::Error> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
+                DELETE FROM
+                    DeniableMessage
+                WHERE
+                    id = ?1
+                "#,
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        stmt.execute(params![message_id])
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+        Ok(())
     }
 }
 

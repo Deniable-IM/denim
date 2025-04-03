@@ -4,6 +4,12 @@ use std::collections::{HashMap, HashSet};
 use crate::errors::{ContactManagerError, SignalClientError};
 
 #[derive(Debug, PartialEq, Eq)]
+pub struct ContactName {
+    pub name: String,
+    pub service_id: ServiceId,
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub struct Contact {
     pub service_id: ServiceId,
     pub device_ids: HashSet<DeviceId>,

@@ -318,7 +318,8 @@ pub enum RegularPayload {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub enum DeniablePayload {
-    UserMessage(SignalMessage),
+    SignalMessage(SignalMessage), // client -> Server
+    Envelope(Envelope),           // server -> Client
 }
 
 #[derive(Debug, Serialize, Deserialize)]
