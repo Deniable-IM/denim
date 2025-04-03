@@ -467,7 +467,7 @@ impl SetKeyRequest {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PreKeyRequest {
-    service_id: String,
+    pub service_id: String,
 }
 
 #[serde_as]

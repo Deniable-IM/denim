@@ -21,8 +21,8 @@ use common::{
     envelope::ProcessedEnvelope,
     signalservice::{envelope, Content, DataMessage, Envelope},
     web_api::{
-        AccountAttributes, DeniablePayload, DenimMessage, DenimMessages, RegistrationRequest,
-        RegularPayload, SignalMessage,
+        AccountAttributes, DeniablePayload, DenimMessage, DenimMessages, PreKeyRequest,
+        RegistrationRequest, RegularPayload, SignalMessage,
     },
 };
 use core::str;
@@ -440,14 +440,14 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
                 destination_registration_id: msg.0,
                 content: BASE64_STANDARD.encode(msg.1.serialize()),
             });
-            let regular_payload_serialized =
+            let deniable_payload_serialized =
                 serialize(&deniable_payload).expect("Should serialize payload");
 
             self.storage
                 .device
                 .lock()
                 .await
-                .store_deniable_message(None, regular_payload_serialized)
+                .store_deniable_payload(None, deniable_payload_serialized)
                 .await
                 .map_err(DatabaseError::from)?;
         }
@@ -530,6 +530,39 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
         self.update_contact(alias, device_ids).await
     }
 
+    pub async fn add_deniable_contact_and_queue_message(
+        &mut self,
+        service_id: &ServiceId,
+        text: &str,
+        alias: &str,
+    ) -> Result<()> {
+        if self.contact_manager.get_contact(&service_id).is_ok() {
+            return Ok(());
+        }
+        let deniable_keyrequest_payload = DeniablePayload::KeyRequest(PreKeyRequest {
+            service_id: service_id.service_id_string(),
+        });
+        let deniable_payload_serialized =
+            serialize(&deniable_keyrequest_payload).expect("Should serialize payload");
+
+        self.storage
+            .device
+            .lock()
+            .await
+            .store_deniable_payload(None, deniable_payload_serialized)
+            .await
+            .map_err(DatabaseError::from)?;
+
+        self.storage
+            .device
+            .lock()
+            .await
+            .store_message_awaiting_encryption(text.to_owned(), alias.to_owned())
+            .await
+            .map_err(DatabaseError::from)?;
+        Ok(())
+    }
+
     pub async fn has_contact(&mut self, alias: &str) -> bool {
         self.storage
             .device
@@ -598,8 +631,7 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
         let mut device_ids = Vec::new();
         let time = SystemTime::now();
         for ref bundle in bundles {
-            // Device id is safe to unwrap.
-            let device_id = bundle.device_id().unwrap();
+            let device_id = bundle.device_id().expect("Device id should be safe");
             device_ids.push(device_id);
             process_prekey_bundle(
                 &ProtocolAddress::new(service_id.service_id_string(), device_id),

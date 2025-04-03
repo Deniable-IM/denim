@@ -254,6 +254,7 @@ impl ClientDB for Device {
 
         Ok(())
     }
+
     async fn get_all_nicknames(&self) -> Result<Vec<ContactName>, Self::Error> {
         let mut stmt = self
             .conn
@@ -963,7 +964,7 @@ impl ClientDB for Device {
         )?)
     }
 
-    async fn get_deniable_message(&self) -> Result<(u32, Vec<u8>), Self::Error> {
+    async fn get_deniable_payload(&self) -> Result<(u32, Vec<u8>), Self::Error> {
         let mut stmt = self
             .conn
             .prepare(
@@ -971,7 +972,7 @@ impl ClientDB for Device {
             SELECT
                 id, content
             FROM
-                DeniableMessage
+                DeniablePayload
             "#,
             )
             .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
@@ -982,7 +983,7 @@ impl ClientDB for Device {
         Ok(row)
     }
 
-    async fn get_deniable_message_by_id(&self, message_id: u32) -> Result<Vec<u8>, Self::Error> {
+    async fn get_deniable_payload_by_id(&self, payload_id: u32) -> Result<Vec<u8>, Self::Error> {
         let mut stmt = self
             .conn
             .prepare(
@@ -990,7 +991,7 @@ impl ClientDB for Device {
             SELECT
                 content
             FROM
-                DeniableMessage
+                DeniablePayload
             WHERE
                 id = ?1
             "#,
@@ -998,57 +999,127 @@ impl ClientDB for Device {
             .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
 
         let row: Vec<u8> = stmt
-            .query_row([message_id], |row| Ok(row.get(0)?))
+            .query_row([payload_id], |row| Ok(row.get(0)?))
             .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
         Ok(row)
     }
 
-    async fn store_deniable_message(
+    async fn store_deniable_payload(
         &self,
-        message_id: Option<u32>,
-        message: Vec<u8>,
+        payload_id: Option<u32>,
+        payload: Vec<u8>,
     ) -> Result<(), Self::Error> {
-        if let Some(id) = message_id {
+        if let Some(id) = payload_id {
             let mut stmt = self
                 .conn
                 .prepare(
                     r#"
-                UPDATE DeniableMessage
+                UPDATE DeniablePayload
                 SET content = ?1
                 WHERE id = ?2
                 "#,
                 )
                 .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
 
-            stmt.execute(params![message, id])
+            stmt.execute(params![payload, id])
                 .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
         } else {
             let mut stmt = self
                 .conn
                 .prepare(
                     r#"
-                INSERT INTO DeniableMessage (content)
+                INSERT INTO DeniablePayload (content)
                 VALUES (?1)
                 "#,
                 )
                 .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
 
-            stmt.execute(params![message])
+            stmt.execute(params![payload])
                 .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
         }
         Ok(())
     }
 
-    async fn remove_deniable_message(&self, message_id: u32) -> Result<(), Self::Error> {
+    async fn remove_deniable_payload(&self, payload_id: u32) -> Result<(), Self::Error> {
         let mut stmt = self
             .conn
             .prepare(
                 r#"
-                DELETE FROM
-                    DeniableMessage
-                WHERE
-                    id = ?1
-                "#,
+            DELETE FROM
+                DeniablePayload
+            WHERE
+                id = ?1
+            "#,
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        stmt.execute(params![payload_id])
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+        Ok(())
+    }
+
+    async fn get_messages_awaiting_encryption(
+        &self,
+        alias: String,
+    ) -> Result<Vec<String>, Self::Error> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
+            SELECT
+                message
+            FROM
+                DeniableMessageAwaitingEncryption
+            WHERE
+                alias = ?1
+            "#,
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        let rows = stmt
+            .query_map([alias], |row| Ok(row.get(0)?))
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        let mut messages = Vec::new();
+        for message in rows {
+            messages.push(
+                message.map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?,
+            );
+        }
+
+        Ok(messages)
+    }
+
+    async fn store_message_awaiting_encryption(
+        &self,
+        message: String,
+        alias: String,
+    ) -> Result<(), Self::Error> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
+            INSERT INTO DeniableMessageAwaitingEncryption (message, alias)
+            VALUES (?1, ?2)
+            "#,
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        stmt.execute(params![message, alias])
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+        Ok(())
+    }
+
+    async fn remove_message_awaiting_encryption(&self, message_id: u32) -> Result<(), Self::Error> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
+            DELETE FROM
+                DeniableMessageAwaitingEncryption
+            WHERE
+                id = ?1
+            "#,
             )
             .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
 

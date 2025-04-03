@@ -4,7 +4,13 @@ CREATE TABLE DeniableDeviceSessionStore (
   session_record  TEXT NOT NULL
 );
 
-CREATE TABLE DeniableMessage (
+CREATE TABLE DeniablePayload (
   id              INTEGER PRIMARY KEY,
   content         BLOB NOT NULL
+);
+
+CREATE TABLE DeniableMessageAwaitingEncryption (
+  id              INTEGER PRIMARY KEY,
+  message         TEXT NOT NULL,
+  alias           TEXT NOT NULL
 );

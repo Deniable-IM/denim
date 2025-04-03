@@ -84,15 +84,15 @@ impl ClientDB for InMemory {
         todo!()
     }
 
+    async fn get_all_nicknames(&self) -> Result<Vec<ContactName>, Self::Error> {
+        todo!()
+    }
+
     async fn insert_service_id_for_nickname(
         &self,
         _nickname: &str,
         _service_id: &ServiceId,
     ) -> Result<(), Self::Error> {
-        todo!()
-    }
-
-    async fn get_all_nicknames(&self) -> Result<Vec<ContactName>, Self::Error> {
         todo!()
     }
 
@@ -266,19 +266,35 @@ impl ClientDB for InMemory {
         Ok(self.pni)
     }
 
-    async fn get_deniable_message(&self) -> Result<(u32, Vec<u8>), Self::Error> {
+    async fn get_deniable_payload(&self) -> Result<(u32, Vec<u8>), Self::Error> {
         todo!()
     }
 
-    async fn get_deniable_message_by_id(&self, _: u32) -> Result<Vec<u8>, Self::Error> {
+    async fn get_deniable_payload_by_id(&self, _: u32) -> Result<Vec<u8>, Self::Error> {
         todo!()
     }
 
-    async fn store_deniable_message(&self, _: Option<u32>, _: Vec<u8>) -> Result<(), Self::Error> {
+    async fn store_deniable_payload(&self, _: Option<u32>, _: Vec<u8>) -> Result<(), Self::Error> {
         todo!()
     }
 
-    async fn remove_deniable_message(&self, _: u32) -> Result<(), Self::Error> {
+    async fn remove_deniable_payload(&self, _: u32) -> Result<(), Self::Error> {
+        todo!()
+    }
+    async fn get_messages_awaiting_encryption(
+        &self,
+        _: String,
+    ) -> Result<Vec<String>, Self::Error> {
+        todo!()
+    }
+    async fn store_message_awaiting_encryption(
+        &self,
+        _: String,
+        _: String,
+    ) -> Result<(), Self::Error> {
+        todo!()
+    }
+    async fn remove_message_awaiting_encryption(&self, _: u32) -> Result<(), Self::Error> {
         todo!()
     }
 }

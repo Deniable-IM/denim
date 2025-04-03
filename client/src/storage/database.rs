@@ -118,14 +118,24 @@ pub trait ClientDB {
     async fn get_aci(&self) -> Result<Aci, Self::Error>;
     async fn set_pni(&mut self, new_pni: Pni) -> Result<(), Self::Error>;
     async fn get_pni(&self) -> Result<Pni, Self::Error>;
-    async fn get_deniable_message(&self) -> Result<(u32, Vec<u8>), Self::Error>;
-    async fn get_deniable_message_by_id(&self, message_id: u32) -> Result<Vec<u8>, Self::Error>;
-    async fn store_deniable_message(
+    async fn get_deniable_payload(&self) -> Result<(u32, Vec<u8>), Self::Error>;
+    async fn get_deniable_payload_by_id(&self, payload_id: u32) -> Result<Vec<u8>, Self::Error>;
+    async fn store_deniable_payload(
         &self,
-        message_id: Option<u32>,
-        message: Vec<u8>,
+        payload_id: Option<u32>,
+        payload: Vec<u8>,
     ) -> Result<(), Self::Error>;
-    async fn remove_deniable_message(&self, message_id: u32) -> Result<(), Self::Error>;
+    async fn remove_deniable_payload(&self, payload_id: u32) -> Result<(), Self::Error>;
+    async fn get_messages_awaiting_encryption(
+        &self,
+        alias: String,
+    ) -> Result<Vec<String>, Self::Error>;
+    async fn store_message_awaiting_encryption(
+        &self,
+        message: String,
+        alias: String,
+    ) -> Result<(), Self::Error>;
+    async fn remove_message_awaiting_encryption(&self, message_id: u32) -> Result<(), Self::Error>;
 }
 
 pub struct DeviceIdentityKeyStore<T: ClientDB> {
@@ -447,7 +457,7 @@ impl<T: ClientDB> DeniableSendingBuffer for DeniableStore<T> {
         self.db
             .lock()
             .await
-            .get_deniable_message()
+            .get_deniable_payload()
             .await
             .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))
     }
@@ -460,7 +470,7 @@ impl<T: ClientDB> DeniableSendingBuffer for DeniableStore<T> {
         self.db
             .lock()
             .await
-            .store_deniable_message(message_id, outgoing_message)
+            .store_deniable_payload(message_id, outgoing_message)
             .await
             .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))
     }
@@ -472,7 +482,7 @@ impl<T: ClientDB> DeniableSendingBuffer for DeniableStore<T> {
         self.db
             .lock()
             .await
-            .remove_deniable_message(message_id)
+            .remove_deniable_payload(message_id)
             .await
             .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))
     }
