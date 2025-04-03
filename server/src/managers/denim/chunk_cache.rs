@@ -127,12 +127,7 @@ where
             return Ok(Vec::new());
         }
 
-        let mut chunks = Vec::new();
-        // chunks is a [chunk1, msg_id1, chunk2, msg_id2, ...]
-        for i in (0..values.len()).step_by(2) {
-            chunks.push(bincode::deserialize(&values[i])?);
-        }
-        Ok(chunks)
+        Ok(redis::decode(values)?)
     }
 
     pub async fn add_availability_listener(
@@ -216,7 +211,7 @@ pub mod chunk_cache_tests {
         message_cache::{generate_chunk, generate_uuid, teardown, MockWebSocketConnection},
         user::new_protocol_address,
     };
-    use ::redis::cmd;
+    use ::redis::{cmd, Value};
 
     #[tokio::test]
     async fn test_availability_listener_new_messages() {
@@ -255,18 +250,18 @@ pub mod chunk_cache_tests {
             .await
             .unwrap();
 
-        let result = cmd("ZRANGEBYSCORE")
+        let values = cmd("ZRANGEBYSCORE")
             .arg(chunk_cache.get_queue_key(&address, reciver))
             .arg(chunk_id)
             .arg(chunk_id)
-            .query_async::<Vec<Vec<u8>>>(&mut connection)
+            .query_async::<Vec<Value>>(&mut connection)
             .await
             .unwrap();
 
         teardown(&chunk_cache.test_key, connection).await;
 
-        let result = bincode::deserialize::<DenimChunk>(&result[0]).unwrap();
-        assert_eq!(chunk, result);
+        let result = redis::decode::<DenimChunk>(values).unwrap();
+        assert_eq!(chunk, result[0]);
     }
 
     #[tokio::test]

@@ -7,6 +7,7 @@ use crate::{
     managers::manager::Manager,
     storage::redis::{self},
 };
+use ::redis::Value;
 use anyhow::Result;
 use common::signalservice::Envelope;
 use deadpool_redis::{redis::cmd, Config, Connection, Runtime};
@@ -149,17 +150,12 @@ where
         let queue_key = self.get_message_queue_key(address);
         let queue_lock_key = self.get_persist_in_progress_key(address);
 
-        let messages = redis::get_values(connection, queue_key, queue_lock_key, -1).await?;
-        if messages.is_empty() {
+        let values = redis::get_values(connection, queue_key, queue_lock_key, -1).await?;
+        if values.is_empty() {
             return Ok(Vec::new());
         }
 
-        let mut envelopes = Vec::new();
-        // messages is a [envelope1, msg_id1, envelope2, msg_id2, ...]
-        for i in (0..messages.len()).step_by(2) {
-            envelopes.push(bincode::deserialize(&messages[i])?);
-        }
-        Ok(envelopes)
+        Ok(redis::decode(values)?)
     }
 
     pub async fn get_messages_to_persist(
@@ -169,17 +165,14 @@ where
     ) -> Result<Vec<Envelope>> {
         let mut connection = self.pool.get().await?;
 
-        let messages = cmd("ZRANGE")
+        let values = cmd("ZRANGE")
             .arg(self.get_message_queue_key(address))
             .arg(0)
             .arg(limit)
-            .query_async::<Vec<Vec<u8>>>(&mut connection)
+            .query_async::<Vec<Value>>(&mut connection)
             .await?;
 
-        let valid_envelopes: Vec<Envelope> = messages
-            .into_iter()
-            .filter_map(|m| bincode::deserialize(&m).ok())
-            .collect();
+        let valid_envelopes = redis::decode::<Envelope>(values).unwrap();
 
         Ok(valid_envelopes)
     }
@@ -357,20 +350,18 @@ pub mod message_cache_tests {
             .await
             .unwrap();
 
-        let result = cmd("ZRANGEBYSCORE")
+        let values = cmd("ZRANGEBYSCORE")
             .arg(message_cache.get_message_queue_key(&address))
             .arg(message_id)
             .arg(message_id)
-            .query_async::<Vec<Vec<u8>>>(&mut connection)
+            .query_async::<Vec<Value>>(&mut connection)
             .await
             .unwrap();
 
         teardown(&message_cache.test_key, connection).await;
 
-        assert_eq!(
-            envelope,
-            bincode::deserialize::<Envelope>(&result[0]).unwrap()
-        );
+        let result = redis::decode::<Envelope>(values).unwrap()[0].clone();
+        assert_eq!(envelope, result);
     }
 
     #[tokio::test]
@@ -397,21 +388,18 @@ pub mod message_cache_tests {
             .await
             .unwrap();
 
-        let result = cmd("ZRANGEBYSCORE")
+        let values = cmd("ZRANGEBYSCORE")
             .arg(message_cache.get_message_queue_key(&address))
             .arg(message_id_2)
             .arg(message_id_2)
-            .query_async::<Vec<Vec<u8>>>(&mut connection)
+            .query_async::<Vec<Value>>(&mut connection)
             .await
             .unwrap();
 
         teardown(&message_cache.test_key, connection).await;
 
-        assert_eq!(
-            envelope1,
-            bincode::deserialize::<Envelope>(&result[0]).unwrap()
-        );
-
+        let result = redis::decode::<Envelope>(values).unwrap()[0].clone();
+        assert_eq!(envelope1, result);
         assert_eq!(message_id, message_id_2);
     }
 
@@ -441,31 +429,28 @@ pub mod message_cache_tests {
             .unwrap();
 
         // querying the envelopes
-        let result_1 = cmd("ZRANGEBYSCORE")
+        let values1 = cmd("ZRANGEBYSCORE")
             .arg(message_cache.get_message_queue_key(&address))
             .arg(message_id)
             .arg(message_id)
-            .query_async::<Vec<Vec<u8>>>(&mut connection)
+            .query_async::<Vec<Value>>(&mut connection)
             .await
             .unwrap();
 
-        let result_2 = cmd("ZRANGEBYSCORE")
+        let values2 = cmd("ZRANGEBYSCORE")
             .arg(message_cache.get_message_queue_key(&address))
             .arg(message_id_2)
             .arg(message_id_2)
-            .query_async::<Vec<Vec<u8>>>(&mut connection)
+            .query_async::<Vec<Value>>(&mut connection)
             .await
             .unwrap();
 
         teardown(&message_cache.test_key, connection).await;
 
-        // they are inserted as two different messages
+        let result1 = redis::decode::<Envelope>(values1).unwrap()[0].clone();
+        let result2 = redis::decode::<Envelope>(values2).unwrap()[0].clone();
         assert_ne!(message_id, message_id_2);
-
-        assert_ne!(
-            bincode::deserialize::<Envelope>(&result_1[0]).unwrap(),
-            bincode::deserialize::<Envelope>(&result_2[0]).unwrap()
-        );
+        assert_ne!(result1, result2);
     }
 
     #[tokio::test]

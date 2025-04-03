@@ -1,9 +1,36 @@
 use anyhow::Result;
+use base64::{prelude::BASE64_STANDARD, Engine as _};
 use deadpool_redis::Connection;
-use redis::cmd;
+use redis::{cmd, FromRedisValue, Value};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const PAGE_SIZE: u32 = 100;
+
+pub(crate) fn decode<T>(values: Vec<Value>) -> Result<Vec<T>>
+where
+    T: serde::de::DeserializeOwned,
+{
+    let strings = values
+        .into_iter()
+        .map(|v| String::from_redis_value(&v))
+        .collect::<redis::RedisResult<Vec<String>>>()?;
+
+    let data = strings
+        .into_iter()
+        .map(|v| {
+            let base64 = v
+                .split(":")
+                .nth(1)
+                .expect("Redis value in wrong delimiter format!");
+            let data = BASE64_STANDARD
+                .decode(base64)
+                .expect("Redis value not base64! ");
+            bincode::deserialize(&data)
+        })
+        .collect::<Result<Vec<T>, _>>()?;
+
+    Ok(data)
+}
 
 pub async fn insert(
     mut connection: Connection,
@@ -37,19 +64,21 @@ pub async fn insert(
         .query_async::<u64>(&mut connection)
         .await?;
 
+    let value_unique = format!("{}:{}", value_id, BASE64_STANDARD.encode(&value));
+
     #[rustfmt::skip]
     cmd("ZADD")
         .arg(&queue_key)          // key (hash)
         .arg("NX")                // NX: Only add new elements. Don't update already existing elements.
         .arg(value_id)            // order by id (HINCRBY)
-        .arg(&value)              // value
+        .arg(&value_unique)       // value
         .query_async::<()>(&mut connection)
         .await?;
 
     #[rustfmt::skip]
     cmd("HSET")
         .arg(&queue_metadata_key)  // key (hash)
-        .arg(field_guid)                // field
+        .arg(field_guid)           // field
         .arg(value_id)             // value
         .query_async::<()>(&mut connection)
         .await?;
@@ -95,30 +124,30 @@ where
     let mut removed_values = Vec::new();
 
     for guid in field_guids {
-        let message_id: Option<String> = cmd("HGET")
+        let value_id: Option<String> = cmd("HGET")
             .arg(&queue_metadata_key)
             .arg(&guid)
             .query_async(&mut connection)
             .await?;
 
-        if let Some(msg_id) = message_id.clone() {
+        if let Some(value_id) = value_id.clone() {
             // retrieving the message
-            let envelope = cmd("ZRANGE")
+            let values = cmd("ZRANGE")
                 .arg(&queue_key)
-                .arg(&msg_id)
-                .arg(&msg_id)
+                .arg(&value_id)
+                .arg(&value_id)
                 .arg("BYSCORE")
                 .arg("LIMIT")
                 .arg(0)
                 .arg(1)
-                .query_async::<Option<Vec<Vec<u8>>>>(&mut connection)
+                .query_async::<Option<Vec<Value>>>(&mut connection)
                 .await?;
 
             // delete the message
             cmd("ZREMRANGEBYSCORE")
                 .arg(&queue_key)
-                .arg(&msg_id)
-                .arg(&msg_id)
+                .arg(&value_id)
+                .arg(&value_id)
                 .query_async::<()>(&mut connection)
                 .await?;
 
@@ -129,8 +158,10 @@ where
                 .query_async::<()>(&mut connection)
                 .await?;
 
-            if let Some(envel) = envelope {
-                removed_values.push(bincode::deserialize(&envel[0])?);
+            if let Some(values) = values {
+                for data in decode(values)? {
+                    removed_values.push(data);
+                }
             }
         }
     }
@@ -166,7 +197,7 @@ pub async fn get_values(
     queue_key: String,
     queue_lock_key: String,
     stop_index: i32,
-) -> Result<Vec<Vec<u8>>> {
+) -> Result<Vec<Value>> {
     let values_sort = format!("({}", stop_index);
 
     let locked = cmd("GET")
@@ -187,9 +218,9 @@ pub async fn get_values(
         .arg("LIMIT")
         .arg(0)
         .arg(PAGE_SIZE)
-        .arg("WITHSCORES")
-        .query_async::<Vec<Vec<u8>>>(&mut connection)
+        // .arg("WITHSCORES")
+        .query_async::<Vec<Value>>(&mut connection)
         .await?;
 
-    Ok(values.clone())
+    Ok(values)
 }
