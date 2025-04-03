@@ -1,3 +1,5 @@
 DROP TABLE DeniableDeviceSessionStore;
 
-DROP TABLE DeniableMessage;
+DROP TABLE DeniablePayload;
+
+DROP TABLE DeniableMessageAwaitingEncryption;

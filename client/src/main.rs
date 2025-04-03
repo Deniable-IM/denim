@@ -157,9 +157,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     match user.get_service_id_from_server(&caps["alias"]).await {
                         Ok(service_id) => {
                             //Needs to be converted to retrieve keys deniably here
-                            user.add_contact(&caps["alias"], &service_id)
-                                .await
-                                .expect("No bob?");
+                            user.add_deniable_contact_and_queue_message(
+                                &service_id,
+                                &caps["text"],
+                                &caps["alias"],
+                            )
+                            .await
+                            .expect("No bob?");
+
                             contact_names
                                 .insert(service_id.service_id_string(), caps["alias"].to_owned());
                         }
@@ -168,10 +173,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             continue;
                         }
                     }
+                } else {
+                    user.send_deniable_message(&caps["text"], &caps["alias"])
+                        .await?;
                 }
-
-                user.send_deniable_message(&caps["text"], &caps["alias"])
-                    .await?;
             } else {
                 println!("Not valid deniable send command format")
             };
