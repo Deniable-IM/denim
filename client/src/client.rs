@@ -15,13 +15,14 @@ use crate::{
 use async_std::sync::Mutex;
 use axum::http::StatusCode;
 use base64::{prelude::BASE64_STANDARD, Engine as _};
-use bincode::deserialize;
+use bincode::{deserialize, serialize};
 use common::{
+    deniable::chunk::Chunker,
     envelope::ProcessedEnvelope,
     signalservice::{envelope, Content, DataMessage, Envelope},
     web_api::{
-        AccountAttributes, DenimMessage, DenimMessages, RegistrationRequest, RegularPayload,
-        SignalMessage,
+        AccountAttributes, DeniablePayload, DenimMessage, DenimMessages, RegistrationRequest,
+        RegularPayload, SignalMessage,
     },
 };
 use core::str;
@@ -333,36 +334,45 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
         )
         .await?;
 
-        // Put messages into structure ready.
+        let mut denim_messages = Vec::new();
+        for (id, msg) in msgs {
+            let regular_payload = RegularPayload::SignalMessage(SignalMessage {
+                r#type: match msg.1 {
+                    CiphertextMessage::SignalMessage(_) => envelope::Type::Ciphertext.into(),
+                    CiphertextMessage::SenderKeyMessage(_) => envelope::Type::KeyExchange.into(),
+                    CiphertextMessage::PreKeySignalMessage(_) => {
+                        envelope::Type::PrekeyBundle.into()
+                    }
+                    CiphertextMessage::PlaintextContent(_) => {
+                        envelope::Type::PlaintextContent.into()
+                    }
+                },
+                destination_device_id: id.into(),
+                destination_registration_id: msg.0,
+                content: BASE64_STANDARD.encode(msg.1.serialize()),
+            });
+            let regular_payload_size = serialize(&regular_payload)
+                .expect("Should serialize payload")
+                .len() as f32;
+            let chunks = Chunker::create_chunks(
+                0.6, //REPLACE WITH GLOBAL VALUE FROM SERVER
+                regular_payload_size,
+                &mut self.storage.protocol_store.deniable_store,
+            )
+            .await
+            .expect("Should create chunks");
+
+            denim_messages.push(DenimMessage {
+                regular_payload,
+                chunks: chunks.0,
+                counter: None,
+                q: None,
+                ballast: vec![0; chunks.1],
+            });
+        }
+
         let msgs = DenimMessages {
-            messages: msgs
-                .into_iter()
-                .map(|(id, msg)| DenimMessage {
-                    regular_payload: RegularPayload::SignalMessage(SignalMessage {
-                        r#type: match msg.1 {
-                            CiphertextMessage::SignalMessage(_) => {
-                                envelope::Type::Ciphertext.into()
-                            }
-                            CiphertextMessage::SenderKeyMessage(_) => {
-                                envelope::Type::KeyExchange.into()
-                            }
-                            CiphertextMessage::PreKeySignalMessage(_) => {
-                                envelope::Type::PrekeyBundle.into()
-                            }
-                            CiphertextMessage::PlaintextContent(_) => {
-                                envelope::Type::PlaintextContent.into()
-                            }
-                        },
-                        destination_device_id: id.into(),
-                        destination_registration_id: msg.0,
-                        content: BASE64_STANDARD.encode(msg.1.serialize()),
-                    }),
-                    chunks: Vec::new(), //ADD DENIABLE CHUNKS HERE
-                    counter: None,
-                    q: None,
-                    ballast: Vec::new(),
-                })
-                .collect(),
+            messages: denim_messages,
             online: true,
             urgent: false,
             timestamp: timestamp
@@ -379,6 +389,69 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
                 self.server_api.send_msg(&msgs, &service_id).await
             }
         }
+    }
+
+    pub async fn send_deniable_message(&mut self, message: &str, alias: &str) -> Result<()> {
+        let service_id = self
+            .storage
+            .device
+            .lock()
+            .await
+            .get_service_id_by_nickname(alias)
+            .await
+            .map_err(DatabaseError::from)?;
+
+        let content = Content::builder()
+            .data_message(
+                DataMessage::builder()
+                    .body(message.to_owned())
+                    .contact(vec![])
+                    .body_ranges(vec![])
+                    .preview(vec![])
+                    .attachments(vec![])
+                    .build(),
+            )
+            .build();
+
+        let timestamp = SystemTime::now();
+
+        let msgs = encrypt(
+            &mut self.storage.protocol_store.identity_key_store,
+            &mut self.storage.protocol_store.deniable_store,
+            self.contact_manager.get_contact(&service_id)?,
+            pad_message(content.encode_to_vec().as_ref()).as_ref(),
+            timestamp,
+        )
+        .await?;
+
+        for (id, msg) in msgs {
+            let deniable_payload = DeniablePayload::SignalMessage(SignalMessage {
+                r#type: match msg.1 {
+                    CiphertextMessage::SignalMessage(_) => envelope::Type::Ciphertext.into(),
+                    CiphertextMessage::SenderKeyMessage(_) => envelope::Type::KeyExchange.into(),
+                    CiphertextMessage::PreKeySignalMessage(_) => {
+                        envelope::Type::PrekeyBundle.into()
+                    }
+                    CiphertextMessage::PlaintextContent(_) => {
+                        envelope::Type::PlaintextContent.into()
+                    }
+                },
+                destination_device_id: id.into(),
+                destination_registration_id: msg.0,
+                content: BASE64_STANDARD.encode(msg.1.serialize()),
+            });
+            let regular_payload_serialized =
+                serialize(&deniable_payload).expect("Should serialize payload");
+
+            self.storage
+                .device
+                .lock()
+                .await
+                .store_deniable_message(None, regular_payload_serialized)
+                .await
+                .map_err(DatabaseError::from)?;
+        }
+        Ok(())
     }
 
     pub async fn has_message(&mut self) -> bool {
@@ -531,6 +604,16 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
             process_prekey_bundle(
                 &ProtocolAddress::new(service_id.service_id_string(), device_id),
                 &mut self.storage.protocol_store.session_store,
+                &mut self.storage.protocol_store.identity_key_store,
+                bundle,
+                time,
+                &mut OsRng,
+            )
+            .await
+            .map_err(ProcessPreKeyBundleError)?;
+            process_prekey_bundle(
+                &ProtocolAddress::new(service_id.service_id_string(), device_id),
+                &mut self.storage.protocol_store.deniable_store,
                 &mut self.storage.protocol_store.identity_key_store,
                 bundle,
                 time,

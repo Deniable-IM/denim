@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use async_std::sync::Mutex;
 use axum::async_trait;
+use common::deniable::DeniableSendingBuffer;
 use libsignal_core::{Aci, Pni, ProtocolAddress, ServiceId};
 use libsignal_protocol::{
     Direction, IdentityKey, IdentityKeyPair, IdentityKeyStore, KyberPreKeyId, KyberPreKeyRecord,
@@ -11,7 +12,7 @@ use libsignal_protocol::{
 };
 use uuid::Uuid;
 
-use crate::contact_manager::Contact;
+use crate::contact_manager::{Contact, ContactName};
 
 #[allow(dead_code)]
 #[async_trait(?Send)]
@@ -33,6 +34,7 @@ pub trait ClientDB {
     async fn store_contact(&self, contact: &Contact) -> Result<(), Self::Error>;
     async fn load_contacts(&self) -> Result<Vec<Contact>, Self::Error>;
     async fn remove_contact(&self, service_id: &ServiceId) -> Result<(), Self::Error>;
+    async fn get_all_nicknames(&self) -> Result<Vec<ContactName>, Self::Error>;
     async fn insert_service_id_for_nickname(
         &self,
         nickname: &str,
@@ -85,7 +87,16 @@ pub trait ClientDB {
         &self,
         address: &ProtocolAddress,
     ) -> Result<Option<SessionRecord>, Self::Error>;
+    async fn load_deniable_session(
+        &self,
+        address: &ProtocolAddress,
+    ) -> Result<Option<SessionRecord>, Self::Error>;
     async fn store_session(
+        &mut self,
+        address: &ProtocolAddress,
+        record: &SessionRecord,
+    ) -> Result<(), Self::Error>;
+    async fn store_deniable_session(
         &mut self,
         address: &ProtocolAddress,
         record: &SessionRecord,
@@ -107,6 +118,14 @@ pub trait ClientDB {
     async fn get_aci(&self) -> Result<Aci, Self::Error>;
     async fn set_pni(&mut self, new_pni: Pni) -> Result<(), Self::Error>;
     async fn get_pni(&self) -> Result<Pni, Self::Error>;
+    async fn get_deniable_message(&self) -> Result<(u32, Vec<u8>), Self::Error>;
+    async fn get_deniable_message_by_id(&self, message_id: u32) -> Result<Vec<u8>, Self::Error>;
+    async fn store_deniable_message(
+        &self,
+        message_id: Option<u32>,
+        message: Vec<u8>,
+    ) -> Result<(), Self::Error>;
+    async fn remove_deniable_message(&self, message_id: u32) -> Result<(), Self::Error>;
 }
 
 pub struct DeviceIdentityKeyStore<T: ClientDB> {
@@ -362,7 +381,10 @@ impl<T: ClientDB> SenderKeyStore for DeviceSenderKeyStore<T> {
         distribution_id: Uuid,
         record: &SenderKeyRecord,
     ) -> Result<(), SignalProtocolError> {
-        self.store_sender_key(sender, distribution_id, record)
+        self.db
+            .lock()
+            .await
+            .store_sender_key(sender, distribution_id, record)
             .await
             .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))
     }
@@ -376,6 +398,81 @@ impl<T: ClientDB> SenderKeyStore for DeviceSenderKeyStore<T> {
             .lock()
             .await
             .load_sender_key(sender, distribution_id)
+            .await
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))
+    }
+}
+
+pub struct DeniableStore<T: ClientDB> {
+    db: Arc<Mutex<T>>,
+}
+
+impl<T: ClientDB> DeniableStore<T> {
+    pub fn new(db: Arc<Mutex<T>>) -> Self {
+        Self { db }
+    }
+}
+
+#[async_trait(?Send)]
+impl<T: ClientDB> SessionStore for DeniableStore<T> {
+    async fn load_session(
+        &self,
+        address: &ProtocolAddress,
+    ) -> Result<Option<SessionRecord>, SignalProtocolError> {
+        self.db
+            .lock()
+            .await
+            .load_deniable_session(address)
+            .await
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))
+    }
+
+    async fn store_session(
+        &mut self,
+        address: &ProtocolAddress,
+        record: &SessionRecord,
+    ) -> Result<(), SignalProtocolError> {
+        self.db
+            .lock()
+            .await
+            .store_deniable_session(address, record)
+            .await
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))
+    }
+}
+
+#[async_trait(?Send)]
+impl<T: ClientDB> DeniableSendingBuffer for DeniableStore<T> {
+    async fn get_outgoing_message(&mut self) -> Result<(u32, Vec<u8>), SignalProtocolError> {
+        self.db
+            .lock()
+            .await
+            .get_deniable_message()
+            .await
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))
+    }
+
+    async fn set_outgoing_message(
+        &mut self,
+        message_id: Option<u32>,
+        outgoing_message: Vec<u8>,
+    ) -> Result<(), SignalProtocolError> {
+        self.db
+            .lock()
+            .await
+            .store_deniable_message(message_id, outgoing_message)
+            .await
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))
+    }
+
+    async fn remove_outgoing_message(
+        &mut self,
+        message_id: u32,
+    ) -> Result<(), SignalProtocolError> {
+        self.db
+            .lock()
+            .await
+            .remove_deniable_message(message_id)
             .await
             .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))
     }

@@ -9,7 +9,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
 };
-use storage::device::Device;
+use storage::{database::ClientDB, device::Device};
 
 mod client;
 mod contact_manager;
@@ -111,10 +111,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut user = make_client(&args[1], &args[2], &cert_path, &server_url).await;
     println!("Started client with id: {}", &user.aci.service_id_string());
 
-    let mut contact_names = HashMap::new();
+    let mut contact_names: HashMap<String, String> = user
+        .storage
+        .device
+        .lock()
+        .await
+        .get_all_nicknames()
+        .await?
+        .iter()
+        .map(|name| (name.service_id.service_id_string(), name.name.to_owned()))
+        .collect();
     let default_sender = "Unknown Sender".to_owned();
 
     let send_regex = Regex::new(r"send:(?<alias>\w+):(?<text>(\w+\s)*)").unwrap();
+    let denim_regex = Regex::new(r"denim:(?<alias>\w+):(?<text>(\w+\s)*)").unwrap();
     loop {
         println!("Enter command: ");
         let mut input = String::new();
@@ -141,11 +151,36 @@ async fn main() -> Result<(), Box<dyn Error>> {
             } else {
                 println!("Not valid send command format")
             };
+        } else if input.starts_with("denim") {
+            if let Some(caps) = denim_regex.captures(&input) {
+                if !user.has_contact(&caps["alias"]).await {
+                    match user.get_service_id_from_server(&caps["alias"]).await {
+                        Ok(service_id) => {
+                            //Needs to be converted to retrieve keys deniably here
+                            user.add_contact(&caps["alias"], &service_id)
+                                .await
+                                .expect("No bob?");
+                            contact_names
+                                .insert(service_id.service_id_string(), caps["alias"].to_owned());
+                        }
+                        Err(err) => {
+                            println!("{}", err);
+                            continue;
+                        }
+                    }
+                }
+
+                user.send_deniable_message(&caps["text"], &caps["alias"])
+                    .await?;
+            } else {
+                println!("Not valid deniable send command format")
+            };
         } else if input.starts_with("read") {
             receive_all_messages(&mut user, &contact_names, &default_sender).await;
         } else if input.starts_with("help") {
             println!("Supported commands are:");
             println!("  send:{{phone_number}}:{{message}}");
+            println!("  denim:{{phone_number}}:{{message}}");
             println!("  read");
             println!("  help");
             println!("  quit");
