@@ -198,8 +198,7 @@ mod test {
         assert!(!msg.online);
         assert!(msg.urgent);
         assert!(msg.timestamp == 1730217386);
-        let RegularPayload::SignalMessage(signal_msg) = &msg.messages[0].regular_payload
-        else {
+        let RegularPayload::SignalMessage(signal_msg) = &msg.messages[0].regular_payload else {
             panic!()
         };
         assert!(signal_msg.content == "aGVsbG8=");
