@@ -4,7 +4,7 @@ use crate::{
     storage::database::SignalDatabase,
 };
 use anyhow::{anyhow, Ok, Result};
-use common::web_api::{DeniablePayload, DenimChunk, PayloadData};
+use common::web_api::{DeniablePayload, DenimChunk};
 use libsignal_core::ProtocolAddress;
 use uuid::Uuid;
 
@@ -131,7 +131,7 @@ where
 
 #[cfg(test)]
 pub mod denim_manager_tests {
-    use common::web_api::SignalMessage;
+    use common::web_api::{PayloadData, SignalMessage};
     use rand::seq::SliceRandom;
 
     use super::*;
@@ -160,6 +160,38 @@ pub mod denim_manager_tests {
             });
         }
         chunks
+    }
+
+    fn create_payload_chunks(payload_data: PayloadData) -> (Vec<DenimChunk>, Vec<DenimChunk>) {
+        let mut result = Vec::new();
+
+        let (incoming_chunks, _size, mut pending_data) =
+            common::deniable::chunk::Chunker::create_chunks_clone(0.6, 40.0, payload_data);
+
+        result.append(&mut incoming_chunks.clone());
+
+        let final_incoming_chunks = loop {
+            if pending_data.chunk.is_empty() {
+                break Vec::new();
+            }
+
+            let (incoming_chunks, _size, new_pending_data) =
+                common::deniable::chunk::Chunker::create_chunks_clone(
+                    0.6,
+                    40.0,
+                    pending_data.clone(),
+                );
+
+            pending_data = new_pending_data;
+
+            if incoming_chunks.iter().find(|d| d.flags == 2).is_some() {
+                break incoming_chunks;
+            }
+
+            result.append(&mut incoming_chunks.clone())
+        };
+
+        (result, final_incoming_chunks)
     }
 
     fn create_deniable_payload(payload: DeniablePayload, text: &str) -> DeniablePayload {
@@ -574,6 +606,71 @@ pub mod denim_manager_tests {
         teardown(&denim_manager.chunk_cache.test_key, connection).await;
 
         assert_eq!(payload, result_payloads[0]);
+        assert!(result_pending_chunks.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_create_deniable_payloads_multiple_payload_data_chunks_out_of_order() {
+        let denim_manager = init_manager().await;
+        let connection = denim_manager.chunk_cache.get_connection().await.unwrap();
+
+        let (_, sender_address) = new_account_and_address();
+
+        let payload1 = create_deniable_payload(
+            DeniablePayload::UserMessage(SignalMessage::default()),
+            "A message to Bob is here written",
+        );
+
+        let data1 = bincode::serialize(&payload1).unwrap();
+        let (mut payload_chunks1, mut final_payload_chunks1) =
+            create_payload_chunks(PayloadData::new(data1));
+
+        let payload2 = create_deniable_payload(
+            DeniablePayload::UserMessage(SignalMessage::default()),
+            "A message to Bob is here written",
+        );
+
+        let data2 = bincode::serialize(&payload2).unwrap();
+        let (mut payload_chunks2, mut final_payload_chunks2) =
+            create_payload_chunks(PayloadData::new(data2));
+
+        // Add some dummy chunks
+        let dummy_chunks = create_chunks(5, 1);
+        payload_chunks1.append(&mut dummy_chunks.clone());
+        payload_chunks2.append(&mut dummy_chunks.clone());
+
+        // Change order of data chunks
+        let mut rng = rand::thread_rng();
+        payload_chunks1.shuffle(&mut rng);
+        let mut rng = rand::thread_rng();
+        payload_chunks2.shuffle(&mut rng);
+
+        // Last chunk in payload should always be known
+        payload_chunks1.append(&mut final_payload_chunks1);
+        payload_chunks2.append(&mut final_payload_chunks2);
+
+        let _ = denim_manager
+            .set_incoming_chunks(&sender_address, payload_chunks1.clone())
+            .await;
+
+        let _ = denim_manager
+            .set_incoming_chunks(&sender_address, payload_chunks2.clone())
+            .await;
+
+        let cached_incoming_chunks = denim_manager
+            .get_incoming_chunks(&sender_address)
+            .await
+            .unwrap();
+
+        let (result_payloads, result_pending_chunks) = denim_manager
+            .create_deniable_payloads(cached_incoming_chunks)
+            .unwrap();
+
+        // Teardown cache
+        teardown(&denim_manager.chunk_cache.test_key, connection).await;
+
+        assert_eq!(payload1, result_payloads[0]);
+        assert_eq!(payload2, result_payloads[1]);
         assert!(result_pending_chunks.is_empty());
     }
 }

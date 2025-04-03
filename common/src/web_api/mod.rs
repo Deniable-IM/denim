@@ -315,7 +315,7 @@ pub enum RegularPayload {
     Envelope(Envelope),           // server -> Client
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum DeniablePayload {
     UserMessage(SignalMessage),
@@ -331,11 +331,35 @@ pub struct DenimMessage {
     pub ballast: Vec<u8>,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct DenimChunk {
     pub chunk: Vec<u8>,
     pub flags: i32, // Bit flag 1 is dummy, 2 is final
+}
+
+impl Ord for DenimChunk {
+    // Sort in descending order
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        other.flags.cmp(&self.flags)
+    }
+}
+
+impl PartialOrd for DenimChunk {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+pub type PayloadData = DenimChunk;
+
+impl PayloadData {
+    pub fn new(data: Vec<u8>) -> Self {
+        PayloadData {
+            chunk: data,
+            flags: 0,
+        }
+    }
 }
 
 /// Used to upload any type of prekey along with a signature that is used
@@ -582,7 +606,7 @@ pub struct DenimMessages {
     pub timestamp: u64,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct SignalMessage {
     pub r#type: i32,
