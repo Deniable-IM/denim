@@ -198,7 +198,7 @@ mod test {
         assert!(!msg.online);
         assert!(msg.urgent);
         assert!(msg.timestamp == 1730217386);
-        let RegularPayload::SignalMessage(signal_msg) = msg.messages[0].regular_payload.clone()
+        let RegularPayload::SignalMessage(signal_msg) = &msg.messages[0].regular_payload
         else {
             panic!()
         };

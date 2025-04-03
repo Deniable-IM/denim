@@ -308,18 +308,20 @@ pub struct DeviceActivationRequest {
     pub pni_pq_last_resort_pre_key: UploadSignedPreKey,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum RegularPayload {
     SignalMessage(SignalMessage), // client -> Server
     Envelope(Envelope),           // server -> Client
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum DeniablePayload {
     SignalMessage(SignalMessage), // client -> Server
     Envelope(Envelope),           // server -> Client
+    KeyRequest(PreKeyRequest),
+    KeyResponse(PreKeyResponse),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -460,6 +462,12 @@ impl SetKeyRequest {
             pq_last_resort_pre_key,
         }
     }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreKeyRequest {
+    service_id: String,
 }
 
 #[serde_as]
