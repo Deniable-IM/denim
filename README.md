@@ -57,7 +57,7 @@ If you do not want to use HTTPS and WSS you can run the server and client with `
 1. Go into `server`
 2. Close the database and run the following command
 ```zsh
-docker-compose down
+docker-compose down -v
 ```
 
 ### Resetting the client database
