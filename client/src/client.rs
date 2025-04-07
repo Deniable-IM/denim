@@ -205,11 +205,11 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
 
         server_api.publish_pre_key_bundle(key_bundle).await?;
 
-        println!("Connecting to {}...", server_url);
+        // println!("Connecting to {}...", server_url);
         server_api
             .connect(&aci.service_id_string(), &password, server_url, cert_path)
             .await?;
-        println!("Connected");
+        // println!("Connected");
 
         Ok(Client::new(
             aci,

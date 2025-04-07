@@ -210,7 +210,7 @@ impl SignalServerAPI for SignalServer {
             .header("Authorization", auth_header.encode())
             .await
             .map_err(|_| RegistrationError::NoResponse)?;
-        println!("Sent POST request to /{}", REGISTER_URI);
+        // println!("Sent POST request to /{}", REGISTER_URI);
         if res.status().is_success() {
             Ok(from_slice(
                 res.body_bytes()
@@ -244,10 +244,10 @@ impl SignalServerAPI for SignalServer {
             .header("Authorization", header.encode())
             .await
             .map_err(|_| IdentifierError::NoResponse)?;
-        println!(
-            "Sent GET request to /{}/{}",
-            GET_SERVICE_ID_URI, phone_number
-        );
+        // println!(
+        //     "Sent GET request to /{}/{}",
+        //     GET_SERVICE_ID_URI, phone_number
+        // );
         if res.status().is_success() {
             Ok(ServiceId::parse_from_service_id_string(
                 &res.body_string()
@@ -273,7 +273,7 @@ impl SignalServerAPI for SignalServer {
     ) -> Result<(), SignalClientError> {
         let payload = to_vec(&messages).unwrap();
         let uri = format!("{}/{}?story=false", MSG_URI, recipient.service_id_string());
-        println!("Sending message to: {}", uri);
+        // println!("Sending message to: {}", uri);
 
         let id = self.socket_manager.next_id();
         let _response = self
@@ -449,7 +449,7 @@ impl SignalServer {
         req_type: ReqType,
         uri: String,
     ) -> Result<Response, ServerRequestError> {
-        println!("Sent {} request to {}", req_type, uri);
+        // println!("Sent {} request to {}", req_type, uri);
         let header = match &self.auth_header {
             Some(header) => header,
             None => Err(ServerRequestError::NoAuthDevice)?,
