@@ -166,7 +166,7 @@ pub mod denim_manager_tests {
         let mut result = Vec::new();
 
         let (incoming_chunks, _size, mut pending_data) =
-            common::deniable::chunk::Chunker::create_chunks_clone(0.6, 40.0, payload_data);
+            common::deniable::chunk::Chunker::create_ordered_chunks(0.6, 40.0, payload_data);
 
         result.append(&mut incoming_chunks.clone());
 
@@ -176,7 +176,7 @@ pub mod denim_manager_tests {
             }
 
             let (incoming_chunks, _size, new_pending_data) =
-                common::deniable::chunk::Chunker::create_chunks_clone(
+                common::deniable::chunk::Chunker::create_ordered_chunks(
                     0.6,
                     40.0,
                     pending_data.clone(),
@@ -327,7 +327,7 @@ pub mod denim_manager_tests {
         let data = bincode::serialize(&payload).unwrap();
 
         let (incoming_chunks, _size, _pending_data) =
-            common::deniable::chunk::Chunker::create_chunks_clone(
+            common::deniable::chunk::Chunker::create_ordered_chunks(
                 0.6,
                 150.0,
                 PayloadData::new(data),
@@ -373,14 +373,14 @@ pub mod denim_manager_tests {
         let dummy_chunks = create_chunks(5, 1);
 
         let (incoming_chunks1, _size1, pending_data1) =
-            common::deniable::chunk::Chunker::create_chunks_clone(
+            common::deniable::chunk::Chunker::create_ordered_chunks(
                 0.6,
                 100.0,
                 PayloadData::new(data),
             );
 
         let (incoming_chunks2, _size2, pending_data2) =
-            common::deniable::chunk::Chunker::create_chunks_clone(0.6, 100.0, pending_data1);
+            common::deniable::chunk::Chunker::create_ordered_chunks(0.6, 100.0, pending_data1);
 
         let (_, sender_address) = new_account_and_address();
 
@@ -435,14 +435,14 @@ pub mod denim_manager_tests {
         let data2 = bincode::serialize(&payload2).unwrap();
 
         let (incoming_chunks1, _size1, pending_data1) =
-            common::deniable::chunk::Chunker::create_chunks_clone(
+            common::deniable::chunk::Chunker::create_ordered_chunks(
                 0.6,
                 150.0,
                 PayloadData::new(data1),
             );
 
         let (incoming_chunks2, _size2, pending_data2) =
-            common::deniable::chunk::Chunker::create_chunks_clone(
+            common::deniable::chunk::Chunker::create_ordered_chunks(
                 0.6,
                 150.0,
                 PayloadData::new(data2),
@@ -491,7 +491,7 @@ pub mod denim_manager_tests {
         let data = bincode::serialize(&payload).unwrap();
 
         let (incoming_chunks, _size, mut pending_data) =
-            common::deniable::chunk::Chunker::create_chunks_clone(
+            common::deniable::chunk::Chunker::create_ordered_chunks(
                 0.6,
                 40.0,
                 PayloadData::new(data),
@@ -504,7 +504,7 @@ pub mod denim_manager_tests {
         // Exhaust pending data to create and store chunks
         while !pending_data.chunk.is_empty() {
             let (incoming_chunks, _size, new_pending_data) =
-                common::deniable::chunk::Chunker::create_chunks_clone(
+                common::deniable::chunk::Chunker::create_ordered_chunks(
                     0.6,
                     40.0,
                     pending_data.clone(),
@@ -545,7 +545,7 @@ pub mod denim_manager_tests {
         let data = bincode::serialize(&payload).unwrap();
 
         let (incoming_chunks, _size, mut pending_data) =
-            common::deniable::chunk::Chunker::create_chunks_clone(
+            common::deniable::chunk::Chunker::create_ordered_chunks(
                 0.6,
                 40.0,
                 PayloadData::new(data),
@@ -568,7 +568,7 @@ pub mod denim_manager_tests {
             }
 
             let (incoming_chunks, _size, new_pending_data) =
-                common::deniable::chunk::Chunker::create_chunks_clone(
+                common::deniable::chunk::Chunker::create_ordered_chunks(
                     0.6,
                     40.0,
                     pending_data.clone(),

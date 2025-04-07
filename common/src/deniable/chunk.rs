@@ -62,60 +62,58 @@ impl Chunker {
         Ok((outgoing_chunks, free_space))
     }
 
-    pub fn create_chunks_clone(
+    pub fn create_ordered_chunks(
         q: f32,
         regular_payload_size: f32,
-        current_outgoing_message: PayloadData,
+        payload: PayloadData,
     ) -> (Vec<DenimChunk>, usize, PayloadData) {
-        let mut data_count = current_outgoing_message.flags;
+        let mut result_chunks: Vec<DenimChunk> = vec![];
 
-        let mut outgoing_chunks: Vec<DenimChunk> = vec![];
+        let mut payload_data = payload.chunk.clone();
+        let mut payload_data_count = payload.flags;
+
         let total_free_space = (regular_payload_size * q).ceil() as usize;
-
-        let mut current_outgoing_message = current_outgoing_message.chunk.clone();
-
         let mut free_space = total_free_space - constants::EMPTY_VEC_SIZE;
+
         while free_space >= constants::EMPTY_DENIMCHUNK_SIZE {
             let chunk_size = free_space - constants::EMPTY_DENIMCHUNK_SIZE;
-
             let new_chunk;
-            if !current_outgoing_message.is_empty() && chunk_size != 0 {
-                // Deniable
-                if current_outgoing_message.len() <= chunk_size {
+            if !payload_data.is_empty() && chunk_size != 0 {
+                if payload_data.len() <= chunk_size {
+                    // Deniable
                     new_chunk = DenimChunk {
-                        chunk: current_outgoing_message.to_vec(),
+                        chunk: payload_data.to_vec(),
                         flags: 2,
                     };
-                    // Replace current outgoing message here
-                    current_outgoing_message.clear();
+                    payload_data.clear();
                 } else {
+                    // Data
                     new_chunk = DenimChunk {
-                        chunk: current_outgoing_message[..chunk_size].to_vec(),
-                        flags: data_count,
+                        chunk: payload_data[..chunk_size].to_vec(),
+                        flags: payload_data_count,
                     };
-                    data_count -= 1;
-                    current_outgoing_message = current_outgoing_message[chunk_size..].to_vec();
+                    payload_data_count -= 1;
+                    payload_data = payload_data[chunk_size..].to_vec();
                 }
             } else {
-                //Dummy
+                // Dummy
                 new_chunk = DenimChunk {
                     chunk: vec![0; chunk_size],
                     flags: 1,
                 };
             }
 
-            outgoing_chunks.push(new_chunk);
-            free_space = total_free_space - serialize(&outgoing_chunks).unwrap().len();
+            result_chunks.push(new_chunk);
+            free_space = total_free_space - serialize(&result_chunks).unwrap().len();
         }
 
-        (
-            outgoing_chunks,
-            free_space,
-            PayloadData {
-                chunk: current_outgoing_message,
-                flags: data_count,
-            },
-        )
+        // Return payload data that need to be chunked up at a later time
+        let pending_payload = PayloadData {
+            chunk: payload_data,
+            flags: payload_data_count,
+        };
+
+        (result_chunks, free_space, pending_payload)
     }
 }
 
