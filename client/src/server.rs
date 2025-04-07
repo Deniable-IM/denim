@@ -379,7 +379,7 @@ impl SignalServer {
             .try_into()
             .expect("Could not connect to server.");
         let http_client = http_client.with(SignalLayer);
-        let socket_mgr = SocketManager::new(16);
+        let socket_mgr = SocketManager::new(1024);
 
         let filter = |x: &WebSocketMessage| -> Option<WebSocketMessage> {
             if x.r#type() != web_socket_message::Type::Request || x.request.is_none() {
