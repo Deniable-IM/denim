@@ -98,29 +98,4 @@ CREATE TABLE one_time_pq_pre_key_store (
     signature   bytea,
     UNIQUE(owner, key_id)
 );
-
-INSERT INTO
-    accounts (aci, pni, aci_identity_key, pni_identity_key, phone_number)
-VALUES
-    ('0d76041e-54ce-4cea-a128-ebfa32171c29', 'PNI:93c5486c-5bba-437f-a9c1-0570cb619d27', '\x05ef3dac866da0ee931afcb9c5d698c440d97a188b44e330d03524efcc913ce168'::BYTEA, '\x05ac6107870a9675937f84e881260276f1a565f9d68805ec7305d7e7c5589f7573'::BYTEA, '12345678'); -- keys have to start with 05 and be over 64 bytes
-
-INSERT INTO 
-    devices (owner, device_id, name, auth_token, salt, registration_id, pni_registration_id)
-VALUES
-    (1, '1', '\x1234'::BYTEA ,'2998fa253a711f6585de13634b50e4b5c67646307cb903b8c3e6febba813937d' , 'salt', '1', '1'); -- password = password 
-
-INSERT INTO 
-    devices (owner, device_id, name, auth_token, salt, registration_id, pni_registration_id)
-VALUES
-    (1, '2', '\x5678'::BYTEA , '2998fa253a711f6585de13634b50e4b5c67646307cb903b8c3e6febba813937d', 'salt', '2', '2'); -- password = password 
-
-INSERT INTO
-    accounts (aci, pni, aci_identity_key, pni_identity_key, phone_number)
-VALUES
-    ('7db772c1-5ae2-4d25-9daf-025be34aa7b1', 'PNI:2328ef13-246b-4ff9-9baf-e28933d0bc02','\x05ef3dac866da0ee931afcb9c5d698c440d97a188b44e330d03524efcc913ce168'::BYTEA , '\x05ac6107870a9675937f84e881260276f1a565f9d68805ec7305d7e7c5589f7573'::BYTEA, '87654321'); -- keys have to start with 05 and be over 64 bytes
-
-INSERT INTO 
-    devices (owner, device_id, name, auth_token, salt, registration_id, pni_registration_id)
-VALUES
-    (2, '1', '\x1234'::BYTEA , '2998fa253a711f6585de13634b50e4b5c67646307cb903b8c3e6febba813937d', 'salt', '3', '3'); -- password = password 
     

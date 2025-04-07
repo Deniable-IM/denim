@@ -113,22 +113,23 @@ pub mod test {
         storage::{generic::ProtocolStore, in_memory::InMemory},
         test_utils::user::{new_aci, new_device_id, new_pni, new_rand_number, new_service_id},
     };
+    use async_std::sync::Mutex;
     use libsignal_protocol::{
         kem, process_prekey_bundle, GenericSignedPreKey, IdentityKeyPair, KeyPair,
         KyberPreKeyRecord, KyberPreKeyStore, PreKeyBundle, PreKeyRecord, PreKeyStore,
         SignedPreKeyRecord, SignedPreKeyStore, Timestamp,
     };
     use rand::{rngs::OsRng, CryptoRng, Rng};
-    use std::time::SystemTime;
+    use std::{sync::Arc, time::SystemTime};
 
     pub fn store(_reg: u32) -> ProtocolStore<InMemory> {
-        ProtocolStore::new(InMemory::new(
+        ProtocolStore::new(Arc::new(Mutex::new(InMemory::new(
             "password".to_string(),
             new_aci(),
             new_pni(),
             IdentityKeyPair::generate(&mut OsRng),
             new_rand_number(),
-        ))
+        ))))
     }
 
     pub async fn create_pre_key_bundle<R: Rng + CryptoRng>(

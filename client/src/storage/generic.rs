@@ -1,7 +1,10 @@
+use std::sync::Arc;
+
 use super::database::{
-    ClientDB, DeviceIdentityKeyStore, DeviceKyberPreKeyStore, DevicePreKeyStore,
+    ClientDB, DeniableStore, DeviceIdentityKeyStore, DeviceKyberPreKeyStore, DevicePreKeyStore,
     DeviceSenderKeyStore, DeviceSessionStore, DeviceSignedPreKeyStore,
 };
+use async_std::sync::Mutex;
 use axum::async_trait;
 use libsignal_core::ProtocolAddress;
 use libsignal_protocol::{
@@ -13,12 +16,12 @@ use libsignal_protocol::{
 use uuid::Uuid;
 
 pub struct Storage<T: ClientDB> {
-    pub device: T,
+    pub device: Arc<Mutex<T>>,
     pub protocol_store: ProtocolStore<T>,
 }
 
 impl<T: ClientDB> Storage<T> {
-    pub fn new(db: T, protocol_store: ProtocolStore<T>) -> Self {
+    pub fn new(db: Arc<Mutex<T>>, protocol_store: ProtocolStore<T>) -> Self {
         Self {
             device: db,
             protocol_store,
@@ -33,10 +36,11 @@ pub struct ProtocolStore<T: ClientDB> {
     pub kyber_pre_key_store: DeviceKyberPreKeyStore<T>,
     pub session_store: DeviceSessionStore<T>,
     pub sender_key_store: DeviceSenderKeyStore<T>,
+    pub deniable_store: DeniableStore<T>,
 }
 
-impl<T: ClientDB + Clone> ProtocolStore<T> {
-    pub fn new(device: T) -> Self {
+impl<T: ClientDB> ProtocolStore<T> {
+    pub fn new(device: Arc<Mutex<T>>) -> Self {
         Self {
             identity_key_store: DeviceIdentityKeyStore::new(device.clone()),
             pre_key_store: DevicePreKeyStore::new(device.clone()),
@@ -44,6 +48,7 @@ impl<T: ClientDB + Clone> ProtocolStore<T> {
             kyber_pre_key_store: DeviceKyberPreKeyStore::new(device.clone()),
             session_store: DeviceSessionStore::new(device.clone()),
             sender_key_store: DeviceSenderKeyStore::new(device.clone()),
+            deniable_store: DeniableStore::new(device.clone()),
         }
     }
 }

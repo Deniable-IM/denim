@@ -1,35 +1,51 @@
-use super::constants;
-use crate::web_api::{DenimChunk, PayloadData};
 use bincode::serialize;
+
+use crate::web_api::{DenimChunk, PayloadData};
+
+use super::{constants, DeniableSendingBuffer};
 
 pub struct Chunker;
 
 impl Chunker {
-    pub fn create_chunks(q: f32, regular_payload_size: f32) -> (Vec<DenimChunk>, usize) {
+    pub async fn create_chunks<T: DeniableSendingBuffer>(
+        q: f32,
+        regular_payload_size: f32,
+        buffer: &mut T,
+    ) -> Result<(Vec<DenimChunk>, usize), String> {
         let mut outgoing_chunks: Vec<DenimChunk> = vec![];
         let total_free_space = (regular_payload_size * q).ceil() as usize;
 
         let mut free_space = total_free_space - constants::EMPTY_VEC_SIZE;
         while free_space >= constants::EMPTY_DENIMCHUNK_SIZE {
             let chunk_size = free_space - constants::EMPTY_DENIMCHUNK_SIZE;
-            let current_outgoing_message: &[u8] = &vec![]; //Get current outgoing message here
+            let current_outgoing_message = buffer.get_outgoing_message().await.unwrap_or_default();
 
             let new_chunk;
-            if !current_outgoing_message.is_empty() && chunk_size != 0 {
+            if !current_outgoing_message.1.is_empty() && chunk_size != 0 {
                 //Deniable
-                if current_outgoing_message.len() <= chunk_size {
+                if current_outgoing_message.1.len() <= chunk_size {
                     new_chunk = DenimChunk {
-                        chunk: current_outgoing_message.to_vec(),
+                        chunk: current_outgoing_message.1.to_vec(),
                         flags: 2,
                     };
-                    // Replace current outgoing message here
+                    buffer
+                        .remove_outgoing_message(current_outgoing_message.0)
+                        .await
+                        .map_err(|err| format!("{err}"))?;
                 } else {
                     new_chunk = DenimChunk {
-                        chunk: current_outgoing_message[..chunk_size].to_vec(),
+                        chunk: current_outgoing_message.1[..chunk_size].to_vec(),
                         flags: 0,
                     };
-                    let _remaining_current_outgoing_message =
-                        current_outgoing_message[chunk_size..].to_vec(); //Set current outgoing message to remainder here
+                    let remaining_current_outgoing_message =
+                        current_outgoing_message.1[chunk_size..].to_vec();
+                    buffer
+                        .set_outgoing_message(
+                            Some(current_outgoing_message.0),
+                            remaining_current_outgoing_message,
+                        )
+                        .await
+                        .map_err(|err| format!("{err}"))?;
                 }
             } else {
                 //Dummy
@@ -43,7 +59,7 @@ impl Chunker {
             free_space = total_free_space - serialize(&outgoing_chunks).unwrap().len();
         }
 
-        (outgoing_chunks, free_space)
+        Ok((outgoing_chunks, free_space))
     }
 
     pub fn create_chunks_clone(
@@ -105,12 +121,34 @@ impl Chunker {
 
 #[cfg(test)]
 mod test {
+    use axum::async_trait;
     use bincode::serialize;
+    use libsignal_protocol::SignalProtocolError;
 
     use crate::{
-        deniable::{chunk::Chunker, constants},
+        deniable::{chunk::Chunker, constants, DeniableSendingBuffer},
         web_api::DenimChunk,
     };
+
+    struct MockDeniableSendingBuffer;
+
+    #[async_trait(?Send)]
+    impl DeniableSendingBuffer for MockDeniableSendingBuffer {
+        async fn get_outgoing_message(&mut self) -> Result<(u32, Vec<u8>), SignalProtocolError> {
+            let message: [u8; 32] = rand::random();
+            Ok((1, message.to_vec()))
+        }
+        async fn set_outgoing_message(
+            &mut self,
+            _: Option<u32>,
+            _: Vec<u8>,
+        ) -> Result<(), SignalProtocolError> {
+            Ok(())
+        }
+        async fn remove_outgoing_message(&mut self, _: u32) -> Result<(), SignalProtocolError> {
+            Ok(())
+        }
+    }
 
     #[test]
     fn empty_chunk_size_checker() {
@@ -165,11 +203,13 @@ mod test {
         );
     }
 
-    #[test]
-    fn create_chunks_no_chunks() {
+    #[tokio::test]
+    async fn create_chunks_no_chunks() {
         let expected_deniable_payload_length = (30.0_f32 * 0.6_f32).ceil() as usize;
 
-        let chunks = Chunker::create_chunks(0.6, 30.0);
+        let chunks = Chunker::create_chunks(0.6, 30.0, &mut MockDeniableSendingBuffer {})
+            .await
+            .unwrap();
 
         let denim_array_serialized = serialize(&chunks.0).unwrap();
         assert!(chunks.0.is_empty());
@@ -179,11 +219,13 @@ mod test {
         );
     }
 
-    #[test]
-    fn create_chunks_dummy_chunk() {
+    #[tokio::test]
+    async fn create_chunks_dummy_chunk() {
         let expected_deniable_payload_length = (40.0_f32 * 0.6_f32).ceil() as usize;
 
-        let chunks = Chunker::create_chunks(0.6, 40.0);
+        let chunks = Chunker::create_chunks(0.6, 40.0, &mut MockDeniableSendingBuffer {})
+            .await
+            .unwrap();
 
         let denim_array_serialized = serialize(&chunks.0).unwrap();
         assert_eq!(chunks.0.len(), 1);

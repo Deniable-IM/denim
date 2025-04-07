@@ -226,25 +226,28 @@ impl KeyManager {
 
 #[cfg(test)]
 mod key_manager_tests {
+    use std::sync::Arc;
+
     use crate::{
         key_manager::{KeyManager, PreKeyType},
         storage::{generic::ProtocolStore, in_memory::InMemory},
         test_utils::user::{new_aci, new_pni},
     };
 
+    use async_std::sync::Mutex;
     use libsignal_protocol::{
         GenericSignedPreKey, IdentityKeyPair, KyberPreKeyStore, PreKeyStore, SignedPreKeyStore,
     };
     use rand::rngs::OsRng;
 
     fn store(reg: u32) -> ProtocolStore<InMemory> {
-        ProtocolStore::new(InMemory::new(
+        ProtocolStore::new(Arc::new(Mutex::new(InMemory::new(
             "password".to_string(),
             new_aci(),
             new_pni(),
             IdentityKeyPair::generate(&mut OsRng),
             reg,
-        ))
+        ))))
     }
 
     #[test]

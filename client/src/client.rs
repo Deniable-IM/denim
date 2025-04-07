@@ -12,25 +12,32 @@ use crate::{
         generic::{ProtocolStore, Storage},
     },
 };
+use async_std::sync::Mutex;
 use axum::http::StatusCode;
 use base64::{prelude::BASE64_STANDARD, Engine as _};
-use bincode::deserialize;
+use bincode::{deserialize, serialize};
 use common::{
+    deniable::chunk::Chunker,
     envelope::ProcessedEnvelope,
     signalservice::{envelope, Content, DataMessage, Envelope},
     web_api::{
-        AccountAttributes, DenimMessage, DenimMessages, RegistrationRequest, RegularPayload,
-        SignalMessage,
+        AccountAttributes, DeniablePayload, DenimMessage, DenimMessages, PreKeyRequest,
+        RegistrationRequest, RegularPayload, SignalMessage,
     },
 };
 use core::str;
+use include_dir::{include_dir, Dir};
 use libsignal_core::{Aci, DeviceId, Pni, ProtocolAddress, ServiceId};
 use libsignal_protocol::{process_prekey_bundle, CiphertextMessage, IdentityKeyPair};
 use prost::Message;
 use rand::{rngs::OsRng, Rng};
-use sqlx::{migrate::MigrateDatabase, Sqlite, SqlitePool};
-use std::collections::HashMap;
+use rusqlite::Connection;
+use rusqlite_migration::Migrations;
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    collections::HashMap,
+    sync::{Arc, LazyLock},
+};
 
 pub struct Client<T: ClientDB, U: SignalServerAPI> {
     pub aci: Aci,
@@ -46,6 +53,10 @@ pub struct Client<T: ClientDB, U: SignalServerAPI> {
 const PROFILE_KEY_LENGTH: usize = 32;
 const MASTER_KEY_LENGTH: usize = 32;
 const PASSWORD_LENGTH: usize = 16;
+
+static MIGRATIONS_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/client_db/migrations");
+static MIGRATIONS: LazyLock<Migrations<'static>> =
+    LazyLock::new(|| Migrations::from_directory(&MIGRATIONS_DIR).unwrap());
 
 impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
     fn new(
@@ -66,22 +77,14 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
         }
     }
 
-    async fn connect_to_db(database_url: &str, create_db: bool) -> Result<SqlitePool> {
-        if create_db {
-            if !Sqlite::database_exists(database_url).await.unwrap_or(false) {
-                Sqlite::create_database(database_url).await.unwrap();
-            } else {
-                return Err(DatabaseError::AlreadyExists.into());
-            }
-        }
-        let pool = SqlitePool::connect(database_url).await.unwrap();
+    async fn connect_to_db(database_url: &str) -> Result<Connection> {
+        let mut conn = Connection::open(database_url).expect("Could not open database");
 
-        sqlx::migrate!("client_db/migrations")
-            .run(&pool)
-            .await
+        MIGRATIONS
+            .to_latest(&mut conn)
             .expect("Could not run migrations");
 
-        Ok(pool)
+        Ok(conn)
     }
 
     /// Register a new account with the server.
@@ -98,9 +101,11 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
         let pni_registration_id = OsRng.gen_range(1..16383);
         let aci_id_key_pair = IdentityKeyPair::generate(&mut csprng);
         let pni_id_key_pair = IdentityKeyPair::generate(&mut csprng);
-        let pool = Client::<T, U>::connect_to_db(database_url, true).await?;
-        let device = Device::new(pool);
+        let conn = Client::<T, U>::connect_to_db(database_url).await?;
+        let device = Arc::new(Mutex::new(Device::new(conn)));
         device
+            .lock()
+            .await
             .insert_account_key_information(aci_id_key_pair, aci_registration_id)
             .await
             .unwrap();
@@ -188,6 +193,8 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
 
         let contact_manager = ContactManager::new();
         device
+            .lock()
+            .await
             .insert_account_information(aci, pni, password.clone())
             .await
             .map_err(DatabaseError::from)?;
@@ -219,9 +226,11 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
         cert_path: &Option<String>,
         server_url: &str,
     ) -> Result<Client<Device, SignalServer>> {
-        let pool = Client::<T, U>::connect_to_db(database_url, false).await?;
-        let device = Device::new(pool);
+        let conn = Client::<T, U>::connect_to_db(database_url).await?;
+        let device = Arc::new(Mutex::new(Device::new(conn)));
         let contacts = device
+            .lock()
+            .await
             .load_contacts()
             .await
             .map(|contacts| {
@@ -232,10 +241,25 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
                 c
             })
             .map_err(DatabaseError::from)?;
-        let (one_time, signed, kyber) = device.get_key_ids().await.map_err(DatabaseError::from)?;
+        let (one_time, signed, kyber) = device
+            .lock()
+            .await
+            .get_key_ids()
+            .await
+            .map_err(DatabaseError::from)?;
 
-        let password = device.get_password().await.map_err(DatabaseError::from)?;
-        let aci = device.get_aci().await.map_err(DatabaseError::from)?;
+        let password = device
+            .lock()
+            .await
+            .get_password()
+            .await
+            .map_err(DatabaseError::from)?;
+        let aci = device
+            .lock()
+            .await
+            .get_aci()
+            .await
+            .map_err(DatabaseError::from)?;
 
         let mut server_api = SignalServer::new(cert_path, server_url);
 
@@ -245,9 +269,21 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
 
         server_api.create_auth_header(aci, password.clone(), 1.into());
 
+        let aci = device
+            .lock()
+            .await
+            .get_aci()
+            .await
+            .map_err(DatabaseError::from)?;
+        let pni = device
+            .lock()
+            .await
+            .get_pni()
+            .await
+            .map_err(DatabaseError::from)?;
         Ok(Client::new(
-            device.get_aci().await.map_err(DatabaseError::from)?,
-            device.get_pni().await.map_err(DatabaseError::from)?,
+            aci,
+            pni,
             ContactManager::new_with_contacts(contacts),
             server_api,
             KeyManager::new(signed + 1, kyber + 1, one_time + 1), // Adds 1 to prevent reusing key ids
@@ -269,6 +305,8 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
         let service_id = self
             .storage
             .device
+            .lock()
+            .await
             .get_service_id_by_nickname(alias)
             .await
             .map_err(DatabaseError::from)?;
@@ -296,36 +334,45 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
         )
         .await?;
 
-        // Put messages into structure ready.
+        let mut denim_messages = Vec::new();
+        for (id, msg) in msgs {
+            let regular_payload = RegularPayload::SignalMessage(SignalMessage {
+                r#type: match msg.1 {
+                    CiphertextMessage::SignalMessage(_) => envelope::Type::Ciphertext.into(),
+                    CiphertextMessage::SenderKeyMessage(_) => envelope::Type::KeyExchange.into(),
+                    CiphertextMessage::PreKeySignalMessage(_) => {
+                        envelope::Type::PrekeyBundle.into()
+                    }
+                    CiphertextMessage::PlaintextContent(_) => {
+                        envelope::Type::PlaintextContent.into()
+                    }
+                },
+                destination_device_id: id.into(),
+                destination_registration_id: msg.0,
+                content: BASE64_STANDARD.encode(msg.1.serialize()),
+            });
+            let regular_payload_size = serialize(&regular_payload)
+                .expect("Should serialize payload")
+                .len() as f32;
+            let chunks = Chunker::create_chunks(
+                0.6, //REPLACE WITH GLOBAL VALUE FROM SERVER
+                regular_payload_size,
+                &mut self.storage.protocol_store.deniable_store,
+            )
+            .await
+            .expect("Should create chunks");
+
+            denim_messages.push(DenimMessage {
+                regular_payload,
+                chunks: chunks.0,
+                counter: None,
+                q: None,
+                ballast: vec![0; chunks.1],
+            });
+        }
+
         let msgs = DenimMessages {
-            messages: msgs
-                .into_iter()
-                .map(|(id, msg)| DenimMessage {
-                    regular_payload: RegularPayload::SignalMessage(SignalMessage {
-                        r#type: match msg.1 {
-                            CiphertextMessage::SignalMessage(_) => {
-                                envelope::Type::Ciphertext.into()
-                            }
-                            CiphertextMessage::SenderKeyMessage(_) => {
-                                envelope::Type::KeyExchange.into()
-                            }
-                            CiphertextMessage::PreKeySignalMessage(_) => {
-                                envelope::Type::PrekeyBundle.into()
-                            }
-                            CiphertextMessage::PlaintextContent(_) => {
-                                envelope::Type::PlaintextContent.into()
-                            }
-                        },
-                        destination_device_id: id.into(),
-                        destination_registration_id: msg.0,
-                        content: BASE64_STANDARD.encode(msg.1.serialize()),
-                    }),
-                    chunks: Vec::new(), //ADD DENIABLE CHUNKS HERE
-                    counter: None,
-                    q: None,
-                    ballast: Vec::new(),
-                })
-                .collect(),
+            messages: denim_messages,
             online: true,
             urgent: false,
             timestamp: timestamp
@@ -342,6 +389,69 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
                 self.server_api.send_msg(&msgs, &service_id).await
             }
         }
+    }
+
+    pub async fn send_deniable_message(&mut self, message: &str, alias: &str) -> Result<()> {
+        let service_id = self
+            .storage
+            .device
+            .lock()
+            .await
+            .get_service_id_by_nickname(alias)
+            .await
+            .map_err(DatabaseError::from)?;
+
+        let content = Content::builder()
+            .data_message(
+                DataMessage::builder()
+                    .body(message.to_owned())
+                    .contact(vec![])
+                    .body_ranges(vec![])
+                    .preview(vec![])
+                    .attachments(vec![])
+                    .build(),
+            )
+            .build();
+
+        let timestamp = SystemTime::now();
+
+        let msgs = encrypt(
+            &mut self.storage.protocol_store.identity_key_store,
+            &mut self.storage.protocol_store.deniable_store,
+            self.contact_manager.get_contact(&service_id)?,
+            pad_message(content.encode_to_vec().as_ref()).as_ref(),
+            timestamp,
+        )
+        .await?;
+
+        for (id, msg) in msgs {
+            let deniable_payload = DeniablePayload::SignalMessage(SignalMessage {
+                r#type: match msg.1 {
+                    CiphertextMessage::SignalMessage(_) => envelope::Type::Ciphertext.into(),
+                    CiphertextMessage::SenderKeyMessage(_) => envelope::Type::KeyExchange.into(),
+                    CiphertextMessage::PreKeySignalMessage(_) => {
+                        envelope::Type::PrekeyBundle.into()
+                    }
+                    CiphertextMessage::PlaintextContent(_) => {
+                        envelope::Type::PlaintextContent.into()
+                    }
+                },
+                destination_device_id: id.into(),
+                destination_registration_id: msg.0,
+                content: BASE64_STANDARD.encode(msg.1.serialize()),
+            });
+            let deniable_payload_serialized =
+                serialize(&deniable_payload).expect("Should serialize payload");
+
+            self.storage
+                .device
+                .lock()
+                .await
+                .store_deniable_payload(None, deniable_payload_serialized)
+                .await
+                .map_err(DatabaseError::from)?;
+        }
+        Ok(())
     }
 
     pub async fn has_message(&mut self) -> bool {
@@ -400,12 +510,16 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
 
         self.storage
             .device
+            .lock()
+            .await
             .store_contact(contact)
             .await
             .map_err(DatabaseError::from)?;
 
         self.storage
             .device
+            .lock()
+            .await
             .insert_service_id_for_nickname(alias, &service_id)
             .await
             .map_err(|err| {
@@ -416,9 +530,44 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
         self.update_contact(alias, device_ids).await
     }
 
+    pub async fn add_deniable_contact_and_queue_message(
+        &mut self,
+        service_id: &ServiceId,
+        text: &str,
+        alias: &str,
+    ) -> Result<()> {
+        if self.contact_manager.get_contact(&service_id).is_ok() {
+            return Ok(());
+        }
+        let deniable_keyrequest_payload = DeniablePayload::KeyRequest(PreKeyRequest {
+            service_id: service_id.service_id_string(),
+        });
+        let deniable_payload_serialized =
+            serialize(&deniable_keyrequest_payload).expect("Should serialize payload");
+
+        self.storage
+            .device
+            .lock()
+            .await
+            .store_deniable_payload(None, deniable_payload_serialized)
+            .await
+            .map_err(DatabaseError::from)?;
+
+        self.storage
+            .device
+            .lock()
+            .await
+            .store_message_awaiting_encryption(text.to_owned(), alias.to_owned())
+            .await
+            .map_err(DatabaseError::from)?;
+        Ok(())
+    }
+
     pub async fn has_contact(&mut self, alias: &str) -> bool {
         self.storage
             .device
+            .lock()
+            .await
             .get_service_id_by_nickname(alias)
             .await
             .is_ok()
@@ -429,6 +578,8 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
         let service_id = self
             .storage
             .device
+            .lock()
+            .await
             .get_service_id_by_nickname(alias)
             .await
             .map_err(DatabaseError::from)?;
@@ -439,6 +590,8 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
 
         self.storage
             .device
+            .lock()
+            .await
             .remove_contact(&service_id)
             .await
             .map_err(|err| DatabaseError::Custom(Box::new(err)).into())
@@ -448,6 +601,8 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
         let service_id = self
             .storage
             .device
+            .lock()
+            .await
             .get_service_id_by_nickname(alias)
             .await
             .map_err(DatabaseError::from)?;
@@ -463,6 +618,8 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
 
         self.storage
             .device
+            .lock()
+            .await
             .store_contact(contact)
             .await
             .map_err(|err| DatabaseError::Custom(Box::new(err)).into())
@@ -474,12 +631,21 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
         let mut device_ids = Vec::new();
         let time = SystemTime::now();
         for ref bundle in bundles {
-            // Device id is safe to unwrap.
-            let device_id = bundle.device_id().unwrap();
+            let device_id = bundle.device_id().expect("Device id should be safe");
             device_ids.push(device_id);
             process_prekey_bundle(
                 &ProtocolAddress::new(service_id.service_id_string(), device_id),
                 &mut self.storage.protocol_store.session_store,
+                &mut self.storage.protocol_store.identity_key_store,
+                bundle,
+                time,
+                &mut OsRng,
+            )
+            .await
+            .map_err(ProcessPreKeyBundleError)?;
+            process_prekey_bundle(
+                &ProtocolAddress::new(service_id.service_id_string(), device_id),
+                &mut self.storage.protocol_store.deniable_store,
                 &mut self.storage.protocol_store.identity_key_store,
                 bundle,
                 time,

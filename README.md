@@ -1,4 +1,4 @@
-# signal [![Rust](https://github.com/Diesel-Jeans/signal/actions/workflows/rust.yml/badge.svg)](https://github.com/Diesel-Jeans/signal/actions/workflows/rust.yml)
+# denim [![Rust](https://github.com/Deniable-IM/denim/actions/workflows/rust.yml/badge.svg)](https://github.com/Deniable-IM/denim/actions/workflows/rust.yml)
 
 ## Setup
 ### Preliminaries
@@ -41,21 +41,13 @@ cargo run
 ```
 HTTPS_SERVER_URL=https://localhost:443
 HTTP_SERVER_URL=http://localhost:80
-DATABASE_URL=sqlite://./client/client_db/dev.db
-DATABASE_URL_TEST=sqlite::memory:
 CERT_PATH=../server/cert/rootCA.crt
 ```
-3. Go into `client/client_db`
-4. Execute the following command
+3. Start the client by running the following command
 ```zsh
-cargo sqlx database create -D sqlite://dev.db && cargo sqlx migrate run -D sqlite://dev.db
+cargo run <name> <phone number>
 ```
-5. Go back into `client`
-6. Start the client by running the following command
-```zsh
-cargo run
-```
-As an example, two clients should then be created and messages between them will be send.
+As an example, two clients should then be created and messages between them will be sent.
 
 ### TLS Configuration
 If you do not want to use HTTPS and WSS you can run the server and client with `--no-tls` and then they will just communicate over HTTP and WS
@@ -69,7 +61,4 @@ docker-compose down -v
 ```
 
 ### Resetting the client database
-1. Go into `client/client_db` and run the following command
-```zsh
-rm alice.db* && rm bob.db*
-```
+1. Go into `client/client_db` and remove .db files

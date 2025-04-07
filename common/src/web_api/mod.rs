@@ -308,17 +308,20 @@ pub struct DeviceActivationRequest {
     pub pni_pq_last_resort_pre_key: UploadSignedPreKey,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum RegularPayload {
     SignalMessage(SignalMessage), // client -> Server
     Envelope(Envelope),           // server -> Client
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize,PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub enum DeniablePayload {
-    UserMessage(SignalMessage),
+    SignalMessage(SignalMessage), // client -> Server
+    Envelope(Envelope),           // server -> Client
+    KeyRequest(PreKeyRequest),
+    KeyResponse(PreKeyResponse),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -485,8 +488,14 @@ impl SetKeyRequest {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PreKeyRequest {
+    pub service_id: String,
+}
+
 #[serde_as]
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct PreKeyResponse {
     #[serde_as(as = "Base64")]
@@ -511,7 +520,7 @@ impl PreKeyResponse {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct PreKeyResponseItem {
     device_id: u32,
