@@ -196,12 +196,13 @@ pub mod denim_manager_tests {
 
     fn create_deniable_payload(payload: DeniablePayload, text: &str) -> DeniablePayload {
         match payload {
-            DeniablePayload::UserMessage(_) => DeniablePayload::UserMessage(SignalMessage {
+            DeniablePayload::SignalMessage(_) => DeniablePayload::SignalMessage(SignalMessage {
                 r#type: 1,
                 destination_device_id: 1,
                 destination_registration_id: 1,
                 content: text.to_string(),
             }),
+            _ => DeniablePayload::SignalMessage(SignalMessage::default()),
         }
     }
 
@@ -319,7 +320,7 @@ pub mod denim_manager_tests {
         let connection = denim_manager.chunk_cache.get_connection().await.unwrap();
 
         let payload = create_deniable_payload(
-            DeniablePayload::UserMessage(SignalMessage::default()),
+            DeniablePayload::SignalMessage(SignalMessage::default()),
             "A message to Bob is here written",
         );
 
@@ -363,7 +364,7 @@ pub mod denim_manager_tests {
         let connection = denim_manager.chunk_cache.get_connection().await.unwrap();
 
         let payload = create_deniable_payload(
-            DeniablePayload::UserMessage(SignalMessage::default()),
+            DeniablePayload::SignalMessage(SignalMessage::default()),
             "A message to Bob is here written",
         );
 
@@ -422,13 +423,13 @@ pub mod denim_manager_tests {
         let connection = denim_manager.chunk_cache.get_connection().await.unwrap();
 
         let payload1 = create_deniable_payload(
-            DeniablePayload::UserMessage(SignalMessage::default()),
+            DeniablePayload::SignalMessage(SignalMessage::default()),
             "A message to Bob is here written",
         );
         let data1 = bincode::serialize(&payload1).unwrap();
 
         let payload2 = create_deniable_payload(
-            DeniablePayload::UserMessage(SignalMessage::default()),
+            DeniablePayload::SignalMessage(SignalMessage::default()),
             "A message to Eve is here written",
         );
         let data2 = bincode::serialize(&payload2).unwrap();
@@ -484,7 +485,7 @@ pub mod denim_manager_tests {
         let (_, sender_address) = new_account_and_address();
 
         let payload = create_deniable_payload(
-            DeniablePayload::UserMessage(SignalMessage::default()),
+            DeniablePayload::SignalMessage(SignalMessage::default()),
             "A message to Bob is here written",
         );
         let data = bincode::serialize(&payload).unwrap();
@@ -538,7 +539,7 @@ pub mod denim_manager_tests {
         let (_, sender_address) = new_account_and_address();
 
         let payload = create_deniable_payload(
-            DeniablePayload::UserMessage(SignalMessage::default()),
+            DeniablePayload::SignalMessage(SignalMessage::default()),
             "A message to Bob is here written",
         );
         let data = bincode::serialize(&payload).unwrap();
@@ -617,7 +618,7 @@ pub mod denim_manager_tests {
         let (_, sender_address) = new_account_and_address();
 
         let payload1 = create_deniable_payload(
-            DeniablePayload::UserMessage(SignalMessage::default()),
+            DeniablePayload::SignalMessage(SignalMessage::default()),
             "A message to Bob is here written",
         );
 
@@ -626,7 +627,7 @@ pub mod denim_manager_tests {
             create_payload_chunks(PayloadData::new(data1));
 
         let payload2 = create_deniable_payload(
-            DeniablePayload::UserMessage(SignalMessage::default()),
+            DeniablePayload::SignalMessage(SignalMessage::default()),
             "A message to Bob is here written",
         );
 
