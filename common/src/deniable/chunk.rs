@@ -1,6 +1,6 @@
 use bincode::serialize;
 
-use crate::web_api::DenimChunk;
+use crate::web_api::{DenimChunk, PayloadData};
 
 use super::{constants, DeniableSendingBuffer};
 
@@ -60,6 +60,60 @@ impl Chunker {
         }
 
         Ok((outgoing_chunks, free_space))
+    }
+
+    pub fn create_ordered_chunks(
+        q: f32,
+        regular_payload_size: f32,
+        payload: PayloadData,
+    ) -> (Vec<DenimChunk>, usize, PayloadData) {
+        let mut result_chunks: Vec<DenimChunk> = vec![];
+
+        let mut payload_data = payload.chunk.clone();
+        let mut payload_data_count = payload.flags;
+
+        let total_free_space = (regular_payload_size * q).ceil() as usize;
+        let mut free_space = total_free_space - constants::EMPTY_VEC_SIZE;
+
+        while free_space >= constants::EMPTY_DENIMCHUNK_SIZE {
+            let chunk_size = free_space - constants::EMPTY_DENIMCHUNK_SIZE;
+            let new_chunk;
+            if !payload_data.is_empty() && chunk_size != 0 {
+                if payload_data.len() <= chunk_size {
+                    // Deniable
+                    new_chunk = DenimChunk {
+                        chunk: payload_data.to_vec(),
+                        flags: 2,
+                    };
+                    payload_data.clear();
+                } else {
+                    // Data
+                    new_chunk = DenimChunk {
+                        chunk: payload_data[..chunk_size].to_vec(),
+                        flags: payload_data_count,
+                    };
+                    payload_data_count -= 1;
+                    payload_data = payload_data[chunk_size..].to_vec();
+                }
+            } else {
+                // Dummy
+                new_chunk = DenimChunk {
+                    chunk: vec![0; chunk_size],
+                    flags: 1,
+                };
+            }
+
+            result_chunks.push(new_chunk);
+            free_space = total_free_space - serialize(&result_chunks).unwrap().len();
+        }
+
+        // Return payload data that need to be chunked up at a later time
+        let pending_payload = PayloadData {
+            chunk: payload_data,
+            flags: payload_data_count,
+        };
+
+        (result_chunks, free_space, pending_payload)
     }
 }
 
