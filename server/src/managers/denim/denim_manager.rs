@@ -83,7 +83,15 @@ where
         Ok(count)
     }
 
-    pub fn get_deniable_payload(&self, _receiver: &ProtocolAddress) -> Result<DeniablePayload> {
+    pub fn get_deniable_payloads(&self, _receiver: &ProtocolAddress) -> Result<DeniablePayload> {
+        todo!()
+    }
+
+    pub fn set_deniable_payloads(
+        &self,
+        _receiver: &ProtocolAddress,
+        _payloads: Vec<DeniablePayload>,
+    ) -> Result<DeniablePayload> {
         todo!()
     }
 
