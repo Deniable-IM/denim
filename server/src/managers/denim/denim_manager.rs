@@ -1,4 +1,4 @@
-use super::{buffer::Buffer, chunk_cache::ChunkCache};
+use super::{buffer::Buffer, chunk_cache::ChunkCache, payload_cache::PayloadCache};
 use crate::{
     availability_listener::AvailabilityListener, managers::manager::Manager,
     storage::database::SignalDatabase,
@@ -15,6 +15,7 @@ where
 {
     db: T,
     chunk_cache: ChunkCache<U>,
+    payload_cache: PayloadCache<U>,
 }
 
 impl<T, U> Manager for DenIMManager<T, U>
@@ -32,8 +33,12 @@ where
     T: SignalDatabase,
     U: AvailabilityListener,
 {
-    pub fn new(db: T, chunk_cache: ChunkCache<U>) -> Self {
-        Self { db, chunk_cache }
+    pub fn new(db: T, chunk_cache: ChunkCache<U>, payload_cache: PayloadCache<U>) -> Self {
+        Self {
+            db,
+            chunk_cache,
+            payload_cache,
+        }
     }
 
     pub async fn get_incoming_chunks(&self, sender: &ProtocolAddress) -> Result<Vec<DenimChunk>> {
@@ -83,24 +88,33 @@ where
         Ok(count)
     }
 
-    pub fn get_deniable_payloads(&self, _receiver: &ProtocolAddress) -> Result<DeniablePayload> {
-        todo!()
+    pub async fn get_deniable_payloads(
+        &self,
+        receiver: &ProtocolAddress,
+    ) -> Result<Vec<DeniablePayload>> {
+        self.payload_cache
+            .get_all_payloads(receiver, Buffer::Receiver)
+            .await
     }
 
-    pub fn set_deniable_payloads(
+    pub async fn set_deniable_payloads(
         &self,
-        _receiver: &ProtocolAddress,
-        _payloads: Vec<DeniablePayload>,
-    ) -> Result<DeniablePayload> {
-        todo!()
-    }
-
-    pub fn queue_deniable_payload(
-        &self,
-        _receiver: &ProtocolAddress,
-        _payload: DeniablePayload,
-    ) -> Result<()> {
-        todo!()
+        receiver: &ProtocolAddress,
+        payloads: Vec<DeniablePayload>,
+    ) -> Result<u64> {
+        let mut count = 0;
+        for payload in payloads {
+            count += self
+                .payload_cache
+                .insert(
+                    receiver,
+                    Buffer::Receiver,
+                    &payload,
+                    &Uuid::new_v4().to_string(),
+                )
+                .await?
+        }
+        Ok(count)
     }
 
     pub fn create_deniable_payloads(
@@ -147,7 +161,9 @@ pub mod denim_manager_tests {
         storage::postgres::PostgresDatabase,
         test_utils::{
             database::database_connect,
-            message_cache::{teardown, MockWebSocketConnection},
+            message_cache::{
+                generate_payload, teardown, DeniablePayloadType, MockWebSocketConnection,
+            },
             user::new_account_and_address,
         },
     };
@@ -156,6 +172,7 @@ pub mod denim_manager_tests {
         DenIMManager::<PostgresDatabase, MockWebSocketConnection> {
             db: database_connect().await,
             chunk_cache: ChunkCache::connect(),
+            payload_cache: PayloadCache::connect(),
         }
     }
 
@@ -681,5 +698,48 @@ pub mod denim_manager_tests {
         assert_eq!(payload1, result_payloads[0]);
         assert_eq!(payload2, result_payloads[1]);
         assert!(result_pending_chunks.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_multiple_outgoing_payloads() {
+        let denim_manager = init_manager().await;
+        let connection = denim_manager.chunk_cache.get_connection().await.unwrap();
+
+        let (_, reciver_address1) = new_account_and_address();
+        let outgoing_payload1 = generate_payload(DeniablePayloadType::SignalMessage);
+
+        let (_, reciver_address2) = new_account_and_address();
+        let outgoing_payload2 = generate_payload(DeniablePayloadType::SignalMessage);
+        let outgoing_payload3 = generate_payload(DeniablePayloadType::KeyResponse);
+
+        let _ = denim_manager
+            .set_deniable_payloads(&reciver_address1, vec![outgoing_payload1.clone()])
+            .await;
+
+        let _ = denim_manager
+            .set_deniable_payloads(
+                &reciver_address2,
+                vec![outgoing_payload2.clone(), outgoing_payload3.clone()],
+            )
+            .await;
+
+        let result_outgoing_payloads1 = denim_manager
+            .get_deniable_payloads(&reciver_address1)
+            .await
+            .unwrap();
+
+        let result_outgoing_payloads2 = denim_manager
+            .get_deniable_payloads(&reciver_address2)
+            .await
+            .unwrap();
+
+        // Teardown cache
+        teardown(&denim_manager.chunk_cache.test_key, connection).await;
+
+        assert_eq!(result_outgoing_payloads1.len(), 1);
+        assert_eq!(result_outgoing_payloads1[0], outgoing_payload1);
+        assert_eq!(result_outgoing_payloads2.len(), 2);
+        assert_eq!(result_outgoing_payloads2[0], outgoing_payload2);
+        assert_eq!(result_outgoing_payloads2[1], outgoing_payload3);
     }
 }
