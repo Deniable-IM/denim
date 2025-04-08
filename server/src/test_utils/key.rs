@@ -1,5 +1,5 @@
-use common::web_api::{DevicePreKeyBundle, UploadPreKey, UploadSignedPreKey};
-use libsignal_protocol::PrivateKey;
+use common::web_api::{DevicePreKeyBundle, PreKeyResponseItem, UploadPreKey, UploadSignedPreKey};
+use libsignal_protocol::{kem, IdentityKey, IdentityKeyPair, KeyPair, PrivateKey};
 use rand::{
     rngs::{OsRng, StdRng},
     Rng, SeedableRng,
@@ -55,4 +55,35 @@ pub fn new_upload_signed_pre_key(signer: Option<PrivateKey>) -> UploadSignedPreK
             signature: key.clone(),
         },
     }
+}
+
+pub fn new_identity_key() -> IdentityKey {
+    let identity_key = IdentityKeyPair::generate(&mut OsRng);
+    *identity_key.identity_key()
+}
+
+pub fn new_pre_key_response_itmes() -> Vec<PreKeyResponseItem> {
+    let prekey = KeyPair::generate(&mut OsRng);
+    let pq_pre_key = kem::KeyPair::generate(kem::KeyType::Kyber1024);
+    let mut keys = Vec::new();
+
+    keys.push(PreKeyResponseItem::new(
+        1.into(),
+        1,
+        Some(UploadPreKey {
+            key_id: 1,
+            public_key: prekey.public_key.serialize(),
+        }),
+        UploadSignedPreKey {
+            key_id: 1,
+            public_key: pq_pre_key.public_key.serialize(),
+            signature: Box::new([1, 2, 3, 4]),
+        },
+        UploadSignedPreKey {
+            key_id: 1,
+            public_key: prekey.public_key.serialize(),
+            signature: Box::new([1, 2, 3, 4]),
+        },
+    ));
+    keys
 }

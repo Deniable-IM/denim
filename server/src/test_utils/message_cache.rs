@@ -1,7 +1,12 @@
 use crate::availability_listener::AvailabilityListener;
-use common::{signalservice::Envelope, web_api::DenimChunk};
+use common::{
+    signalservice::Envelope,
+    web_api::{DeniablePayload, DenimChunk, PreKeyRequest, PreKeyResponse, SignalMessage},
+};
 use redis::cmd;
 use uuid::Uuid;
+
+use super::key::{new_identity_key, new_pre_key_response_itmes};
 
 pub fn generate_uuid() -> String {
     Uuid::new_v4().to_string()
@@ -45,6 +50,31 @@ pub fn generate_envelope(uuid: &str) -> Envelope {
 pub fn generate_chunk() -> DenimChunk {
     DenimChunk {
         ..Default::default()
+    }
+}
+
+pub enum DeniablePayloadType {
+    SignalMessage,
+    Envelope,
+    KeyRequest,
+    KeyResponse,
+}
+
+pub fn generate_payload(payload_type: DeniablePayloadType) -> DeniablePayload {
+    match payload_type {
+        DeniablePayloadType::SignalMessage => {
+            DeniablePayload::SignalMessage(SignalMessage::default())
+        }
+        DeniablePayloadType::Envelope => {
+            DeniablePayload::Envelope(generate_envelope(&generate_uuid()))
+        }
+        DeniablePayloadType::KeyRequest => DeniablePayload::KeyRequest(PreKeyRequest {
+            service_id: "1".to_string(),
+        }),
+        DeniablePayloadType::KeyResponse => DeniablePayload::KeyResponse(PreKeyResponse::new(
+            new_identity_key(),
+            new_pre_key_response_itmes(),
+        )),
     }
 }
 

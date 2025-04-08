@@ -208,11 +208,19 @@ where
 pub mod payload_cache_tests {
     use super::*;
     use crate::test_utils::{
-        message_cache::{generate_uuid, teardown, MockWebSocketConnection},
+        message_cache::{
+            generate_envelope, generate_payload, generate_uuid, teardown, DeniablePayloadType,
+            MockWebSocketConnection,
+        },
         user::new_protocol_address,
     };
     use ::redis::{cmd, Value};
-    use common::web_api::SignalMessage;
+    use common::web_api::{
+        PreKeyRequest, PreKeyResponse, PreKeyResponseItem, SignalMessage, UploadPreKey,
+        UploadSignedPreKey,
+    };
+    use libsignal_protocol::{kem, IdentityKeyPair, KeyPair};
+    use rand::rngs::OsRng;
 
     #[tokio::test]
     async fn test_availability_listener_new_messages() {
@@ -263,6 +271,57 @@ pub mod payload_cache_tests {
 
         let result = redis::decode::<DeniablePayload>(values).unwrap();
         assert_eq!(payload, result[0]);
+    }
+
+    #[tokio::test]
+    async fn test_insert_multiple_payloads() {
+        let payload_cache: PayloadCache<MockWebSocketConnection> = PayloadCache::connect();
+        let mut connection = payload_cache.pool.get().await.unwrap();
+        let address = new_protocol_address();
+
+        let mut payload1 = generate_payload(DeniablePayloadType::SignalMessage);
+        let mut payload2 = generate_payload(DeniablePayloadType::Envelope);
+        let mut payload3 = generate_payload(DeniablePayloadType::KeyRequest);
+        let mut payload4 = generate_payload(DeniablePayloadType::KeyResponse);
+
+        let reciver = Buffer::Receiver;
+
+        let payload_id1 = payload_cache
+            .insert(&address, reciver, &mut payload1, &generate_uuid())
+            .await
+            .unwrap();
+
+        let _payload_id2 = payload_cache
+            .insert(&address, reciver, &mut payload2, &generate_uuid())
+            .await
+            .unwrap();
+
+        let _payload_id3 = payload_cache
+            .insert(&address, reciver, &mut payload3, &generate_uuid())
+            .await
+            .unwrap();
+
+        let payload_id4 = payload_cache
+            .insert(&address, reciver, &mut payload4, &generate_uuid())
+            .await
+            .unwrap();
+
+        let values = cmd("ZRANGEBYSCORE")
+            .arg(payload_cache.get_queue_key(&address, reciver))
+            .arg(payload_id1)
+            .arg(payload_id4)
+            .query_async::<Vec<Value>>(&mut connection)
+            .await
+            .unwrap();
+
+        teardown(&payload_cache.test_key, connection).await;
+
+        let result = redis::decode::<DeniablePayload>(values).unwrap();
+        assert_eq!(4, result.len());
+        assert_eq!(payload1, result[0]);
+        assert_eq!(payload2, result[1]);
+        assert_eq!(payload3, result[2]);
+        assert_eq!(payload4, result[3]);
     }
 
     #[tokio::test]
