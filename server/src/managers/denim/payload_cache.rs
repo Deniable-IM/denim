@@ -8,7 +8,7 @@ use crate::{
     storage::redis::{self},
 };
 use anyhow::Result;
-use common::web_api::DeniablePayload;
+use common::web_api::{DeniablePayload, DenimChunk};
 use deadpool_redis::Connection;
 use libsignal_core::ProtocolAddress;
 use std::{collections::HashMap, sync::Arc};
@@ -128,6 +128,23 @@ where
         }
 
         Ok(redis::decode(values)?)
+    }
+
+    pub async fn get_all_payloads_raw(
+        &self,
+        address: &ProtocolAddress,
+        buffer: Buffer,
+    ) -> Result<Vec<Vec<u8>>> {
+        let connection = self.pool.get().await?;
+        let queue_key = self.get_queue_key(address, buffer);
+        let queue_lock_key = self.get_persist_in_progress_key(address, buffer);
+
+        let values = redis::get_values(connection, queue_key, queue_lock_key, -1).await?;
+        if values.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        Ok(redis::decode_raw(values)?)
     }
 
     pub async fn add_availability_listener(

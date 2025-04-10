@@ -4,7 +4,7 @@ use crate::{
     storage::database::SignalDatabase,
 };
 use anyhow::{anyhow, Ok, Result};
-use common::web_api::{DeniablePayload, DenimChunk};
+use common::web_api::{DeniablePayload, DenimChunk, PayloadData};
 use libsignal_core::ProtocolAddress;
 use uuid::Uuid;
 
@@ -88,6 +88,21 @@ where
         Ok(count)
     }
 
+    pub async fn get_deniable_payloads_raw(
+        &self,
+        receiver: &ProtocolAddress,
+    ) -> Result<PayloadData> {
+        let data: Vec<u8> = self
+            .payload_cache
+            .get_all_payloads_raw(receiver, Buffer::Receiver)
+            .await?
+            .into_iter()
+            .flatten()
+            .collect();
+
+        Ok(PayloadData::new(data))
+    }
+
     pub async fn get_deniable_payloads(
         &self,
         receiver: &ProtocolAddress,
@@ -97,6 +112,7 @@ where
             .await
     }
 
+    /// Store deniable payloads decoded from chunks in incomming buffer
     pub async fn set_deniable_payloads(
         &self,
         receiver: &ProtocolAddress,
@@ -117,6 +133,7 @@ where
         Ok(count)
     }
 
+    /// Create deniable payloads from chunks in incoming buffer
     pub fn create_deniable_payloads(
         &self,
         chunks: Vec<DenimChunk>,
@@ -153,6 +170,7 @@ where
 
 #[cfg(test)]
 pub mod denim_manager_tests {
+    use common::deniable::chunk::Chunker;
     use common::web_api::{PayloadData, SignalMessage};
     use rand::seq::SliceRandom;
 
@@ -741,5 +759,42 @@ pub mod denim_manager_tests {
         assert_eq!(result_outgoing_payloads2.len(), 2);
         assert_eq!(result_outgoing_payloads2[0], outgoing_payload2);
         assert_eq!(result_outgoing_payloads2[1], outgoing_payload3);
+    }
+
+    // TODO: Test when DenIMChunk has all data, meaning flags = 0
+
+    #[tokio::test]
+    async fn test_get_deniable_payload_raw() {
+        let denim_manager = init_manager().await;
+        let connection = denim_manager.chunk_cache.get_connection().await.unwrap();
+
+        let (_, reciver_address) = new_account_and_address();
+
+        let outgoing_payload = create_deniable_payload(
+            DeniablePayload::SignalMessage(SignalMessage::default()),
+            "A message to Bob is here written",
+        );
+
+        let _ = denim_manager
+            .set_deniable_payloads(&reciver_address, vec![outgoing_payload.clone()])
+            .await;
+
+        let result_outgoing_payloads_raw = denim_manager
+            .get_deniable_payloads_raw(&reciver_address)
+            .await
+            .unwrap();
+
+        let (payload_chunks, final_payload_chunks) =
+            create_payload_chunks(result_outgoing_payloads_raw);
+
+        let (result_payloads, pending_chunks) = denim_manager
+            .create_deniable_payloads(vec![payload_chunks, final_payload_chunks].concat())
+            .unwrap();
+
+        // Teardown cache
+        teardown(&denim_manager.chunk_cache.test_key, connection).await;
+
+        assert!(pending_chunks.is_empty());
+        assert_eq!(result_payloads, vec![outgoing_payload]);
     }
 }

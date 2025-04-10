@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use base64::{prelude::BASE64_STANDARD, Engine as _};
 use deadpool_redis::Connection;
 use redis::{cmd, FromRedisValue, Value};
@@ -28,6 +28,29 @@ where
             bincode::deserialize(&data)
         })
         .collect::<Result<Vec<T>, _>>()?;
+
+    Ok(data)
+}
+
+pub(crate) fn decode_raw(values: Vec<Value>) -> Result<Vec<Vec<u8>>> {
+    let strings = values
+        .into_iter()
+        .map(|v| String::from_redis_value(&v))
+        .collect::<redis::RedisResult<Vec<String>>>()?;
+
+    let data = strings
+        .into_iter()
+        .map(|v| {
+            let base64 = v
+                .split(":")
+                .nth(1)
+                .expect("Redis value in wrong delimiter format!");
+            let data = BASE64_STANDARD
+                .decode(base64)
+                .map_err(|err| anyhow!("Redis value not base64!: {err}"))?;
+            Ok(data)
+        })
+        .collect::<Result<Vec<Vec<u8>>>>()?;
 
     Ok(data)
 }
