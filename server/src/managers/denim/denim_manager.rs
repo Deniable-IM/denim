@@ -91,16 +91,13 @@ where
     pub async fn get_deniable_payloads_raw(
         &self,
         receiver: &ProtocolAddress,
-    ) -> Result<PayloadData> {
-        let data: Vec<u8> = self
+    ) -> Result<Vec<Vec<u8>>> {
+        let data: Vec<Vec<u8>> = self
             .payload_cache
             .get_all_payloads_raw(receiver, Buffer::Receiver)
-            .await?
-            .into_iter()
-            .flatten()
-            .collect();
+            .await?;
 
-        Ok(PayloadData::new(data))
+        Ok(data)
     }
 
     pub async fn get_deniable_payloads(
@@ -777,7 +774,8 @@ pub mod denim_manager_tests {
 
         let _ = denim_manager
             .set_deniable_payloads(&reciver_address, vec![outgoing_payload.clone()])
-            .await;
+            .await
+            .unwrap();
 
         let result_outgoing_payloads_raw = denim_manager
             .get_deniable_payloads_raw(&reciver_address)
@@ -785,7 +783,7 @@ pub mod denim_manager_tests {
             .unwrap();
 
         let (payload_chunks, final_payload_chunks) =
-            create_payload_chunks(result_outgoing_payloads_raw);
+            create_payload_chunks(PayloadData::new(result_outgoing_payloads_raw[0].clone()));
 
         let (result_payloads, pending_chunks) = denim_manager
             .create_deniable_payloads(vec![payload_chunks, final_payload_chunks].concat())
@@ -796,5 +794,61 @@ pub mod denim_manager_tests {
 
         assert!(pending_chunks.is_empty());
         assert_eq!(result_payloads, vec![outgoing_payload]);
+    }
+
+    #[tokio::test]
+    async fn test_get_multiple_deniable_payloads_raw() {
+        let denim_manager = init_manager().await;
+        let connection = denim_manager.chunk_cache.get_connection().await.unwrap();
+
+        let (_, reciver_address) = new_account_and_address();
+
+        let outgoing_payload1 = create_deniable_payload(
+            DeniablePayload::SignalMessage(SignalMessage::default()),
+            "A message to Bob is here written",
+        );
+
+        let outgoing_payload2 = create_deniable_payload(
+            DeniablePayload::SignalMessage(SignalMessage::default()),
+            "A message to Eve is here written",
+        );
+
+        let _ = denim_manager
+            .set_deniable_payloads(
+                &reciver_address,
+                vec![outgoing_payload1.clone(), outgoing_payload2.clone()],
+            )
+            .await
+            .unwrap();
+
+        let result_outgoing_payloads_raw = denim_manager
+            .get_deniable_payloads_raw(&reciver_address)
+            .await
+            .unwrap();
+
+        let (payload_chunks1, final_payload_chunks1) =
+            create_payload_chunks(PayloadData::new(result_outgoing_payloads_raw[0].clone()));
+
+        let (payload_chunks2, final_payload_chunks2) =
+            create_payload_chunks(PayloadData::new(result_outgoing_payloads_raw[1].clone()));
+
+        let (result_payloads, pending_chunks) = denim_manager
+            .create_deniable_payloads(
+                vec![
+                    payload_chunks1,
+                    final_payload_chunks1,
+                    payload_chunks2,
+                    final_payload_chunks2,
+                ]
+                .concat(),
+            )
+            .unwrap();
+
+        // Teardown cache
+        teardown(&denim_manager.chunk_cache.test_key, connection).await;
+
+        assert!(pending_chunks.is_empty());
+        assert_eq!(result_payloads.len(), 2);
+        assert_eq!(result_payloads, vec![outgoing_payload1, outgoing_payload2]);
     }
 }

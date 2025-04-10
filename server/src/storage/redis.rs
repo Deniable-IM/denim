@@ -245,5 +245,23 @@ pub async fn get_values(
         .query_async::<Vec<Value>>(&mut connection)
         .await?;
 
+    println!("!!!!!!!!!!!!! Values[0]: {:?}", values[0]);
+
     Ok(values)
+}
+
+/// Take part of redis value out and remove in redis
+pub async fn take_values(
+    mut _connection: Connection,
+    _queue_key: String,
+    _queue_lock_key: String,
+) -> Result<Vec<u8>> {
+    // Values[0]: bulk-string('"1:AAAAAAEAAAABAAAAAQAAACAAAAAAAAAAQSBtZXNzYWdlIHRvIEJvYiBpcyBoZXJlIHdyaXR0ZW4="')
+    // Helper fn: value -> (id, base64 -> vec<u8>)
+    // 1. Get first value in redis
+    // 2. Get id and decode base64
+    // 3. Get a subset of vec<u8> from the payload
+    // 4. Use id with HSET to change to new value or just delete the whole value
+    // 5. Retrun the vec<u8>
+    todo!()
 }
