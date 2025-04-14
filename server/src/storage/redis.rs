@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Ok, Result};
 use base64::{prelude::BASE64_STANDARD, Engine as _};
 use deadpool_redis::Connection;
 use redis::{cmd, FromRedisValue, Value};
@@ -53,6 +53,31 @@ pub(crate) fn decode_raw(values: Vec<Value>) -> Result<Vec<Vec<u8>>> {
         .collect::<Result<Vec<Vec<u8>>>>()?;
 
     Ok(data)
+}
+
+pub(crate) fn to_string(value: &Value) -> Result<String> {
+    let string = Vec::<String>::from_redis_value(value)?
+        .get(0)
+        .ok_or_else(|| anyhow!("Failed"))?
+        .to_string();
+    Ok(string)
+}
+
+pub(crate) fn get_field(value: &Value) -> Result<u64> {
+    println!("value: {:?}", value);
+    let string = Vec::<String>::from_redis_value(value)?
+        .get(0)
+        .ok_or_else(|| anyhow!("Failed"))?
+        .to_string();
+    // let string = values.get(0).ok_or_else(|| anyhow!("asd"))?;
+
+    println!("string: {:}", string);
+    let field = string.split(":").nth(0).ok_or_else(|| anyhow!("Failed"))?;
+    Ok(field.parse()?)
+}
+
+pub(crate) fn create_entry(id: u64, value: Vec<u8>) -> String {
+    format!("{}:{}", id, BASE64_STANDARD.encode(&value))
 }
 
 pub async fn insert(
@@ -245,23 +270,103 @@ pub async fn get_values(
         .query_async::<Vec<Value>>(&mut connection)
         .await?;
 
-    println!("!!!!!!!!!!!!! Values[0]: {:?}", values[0]);
-
     Ok(values)
 }
 
-/// Take part of redis value out and remove in redis
+async fn get_first(
+    connection: &mut Connection,
+    queue_key: String,
+    queue_lock_key: String,
+) -> Result<Value> {
+    let locked = cmd("GET")
+        .arg(&queue_lock_key)
+        .query_async::<Option<String>>(connection)
+        .await?;
+
+    if locked.is_some() {
+        return Err(anyhow!("Failed to get first value: queue is locked."));
+    }
+
+    // Get value at index 0
+    let value = cmd("ZRANGE")
+        .arg(queue_key)
+        .arg(0)
+        .arg(0)
+        .query_async::<Vec<Value>>(connection)
+        .await?
+        .get(0)
+        .ok_or_else(|| anyhow!("Failed to get first value: empty value."))?
+        .clone();
+
+    Ok(value)
+}
+
+async fn update_value(
+    connection: &mut Connection,
+    queue_key: String,
+    field_id: u64,
+    new_value: Vec<u8>,
+) -> Result<bool> {
+    let message_guid_exists = cmd("ZRANGEBYSCORE")
+        .arg(&queue_key)
+        .arg(field_id)
+        .arg(field_id)
+        .query_async::<Vec<Value>>(connection)
+        .await?;
+
+    if message_guid_exists.is_empty() {
+        return Err(anyhow!("Failed to update non-existent value."));
+    }
+
+    let old_value = message_guid_exists
+        .get(0)
+        .ok_or_else(|| anyhow!("failed"))?;
+
+    let old_entry = to_string(old_value)?;
+    let new_entry = create_entry(field_id, new_value);
+
+    // Remove old value
+    let removed = cmd("ZREM")
+        .arg(&queue_key)
+        .arg(old_entry)
+        .query_async::<u64>(connection)
+        .await?;
+    if removed != 1 {
+        return Err(anyhow!("Failed to remove value!"));
+    }
+
+    // Set new value
+    let added = cmd("ZADD")
+        .arg(queue_key)
+        .arg(field_id)
+        .arg(new_entry)
+        .query_async::<u64>(connection)
+        .await?;
+    if added != 1 {
+        return Err(anyhow!("Failed to add value!"));
+    }
+
+    (added == removed)
+        .then_some(true)
+        .ok_or_else(|| anyhow!("Update failed!"))
+}
+
+/// Take part of redis value out and remove
 pub async fn take_values(
-    mut _connection: Connection,
-    _queue_key: String,
-    _queue_lock_key: String,
+    mut connection: Connection,
+    queue_key: String,
+    queue_lock_key: String,
+    data_size: usize,
 ) -> Result<Vec<u8>> {
-    // Values[0]: bulk-string('"1:AAAAAAEAAAABAAAAAQAAACAAAAAAAAAAQSBtZXNzYWdlIHRvIEJvYiBpcyBoZXJlIHdyaXR0ZW4="')
-    // Helper fn: value -> (id, base64 -> vec<u8>)
-    // 1. Get first value in redis
-    // 2. Get id and decode base64
-    // 3. Get a subset of vec<u8> from the payload
-    // 4. Use id with HSET to change to new value or just delete the whole value
-    // 5. Retrun the vec<u8>
-    todo!()
+    let first = get_first(&mut connection, queue_key.clone(), queue_lock_key).await?;
+    let field_id = get_field(&first)?;
+    let mut value = decode_raw(vec![first.clone()])?[0].clone();
+    let rest = value.split_off(data_size);
+
+    let updated = update_value(&mut connection, queue_key, field_id, rest).await?;
+    if !updated {
+        return Err(anyhow!("Failed to update value."));
+    }
+
+    Ok(value)
 }

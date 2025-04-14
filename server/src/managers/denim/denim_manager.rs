@@ -109,6 +109,16 @@ where
             .await
     }
 
+    pub async fn take_values(
+        &self,
+        receiver: &ProtocolAddress,
+        data_size: usize,
+    ) -> Result<Vec<u8>> {
+        self.payload_cache
+            .take_values(receiver, Buffer::Receiver, data_size)
+            .await
+    }
+
     /// Store deniable payloads decoded from chunks in incomming buffer
     pub async fn set_deniable_payloads(
         &self,
@@ -254,7 +264,7 @@ pub mod denim_manager_tests {
         let (_, sender_address) = new_account_and_address();
         let incoming_chunks = create_chunks(1, 0);
 
-        let (_, reciver_address) = new_account_and_address();
+        let (_, receiver_address) = new_account_and_address();
         let outgoing_chunks = create_chunks(2, 0);
 
         let _ = denim_manager
@@ -262,7 +272,7 @@ pub mod denim_manager_tests {
             .await;
 
         let _ = denim_manager
-            .set_outgoing_chunks(&reciver_address, outgoing_chunks)
+            .set_outgoing_chunks(&receiver_address, outgoing_chunks)
             .await;
 
         let result_incoming_chunks = denim_manager
@@ -271,7 +281,7 @@ pub mod denim_manager_tests {
             .unwrap();
 
         let result_outgoing_chunks = denim_manager
-            .get_outgoing_chunks(&reciver_address)
+            .get_outgoing_chunks(&receiver_address)
             .await
             .unwrap();
 
@@ -323,27 +333,27 @@ pub mod denim_manager_tests {
         let denim_manager = init_manager().await;
         let connection = denim_manager.chunk_cache.get_connection().await.unwrap();
 
-        let (_, reciver_address1) = new_account_and_address();
+        let (_, receiver_address1) = new_account_and_address();
         let outgoing_chunks1 = create_chunks(1, 0);
 
-        let (_, reciver_address2) = new_account_and_address();
+        let (_, receiver_address2) = new_account_and_address();
         let outgoing_chunks2 = create_chunks(2, 0);
 
         let _ = denim_manager
-            .set_outgoing_chunks(&reciver_address1, outgoing_chunks1)
+            .set_outgoing_chunks(&receiver_address1, outgoing_chunks1)
             .await;
 
         let _ = denim_manager
-            .set_outgoing_chunks(&reciver_address2, outgoing_chunks2)
+            .set_outgoing_chunks(&receiver_address2, outgoing_chunks2)
             .await;
 
         let result_outgoing_chunks1 = denim_manager
-            .get_outgoing_chunks(&reciver_address1)
+            .get_outgoing_chunks(&receiver_address1)
             .await
             .unwrap();
 
         let result_outgoing_chunks2 = denim_manager
-            .get_outgoing_chunks(&reciver_address2)
+            .get_outgoing_chunks(&receiver_address2)
             .await
             .unwrap();
 
@@ -720,31 +730,31 @@ pub mod denim_manager_tests {
         let denim_manager = init_manager().await;
         let connection = denim_manager.chunk_cache.get_connection().await.unwrap();
 
-        let (_, reciver_address1) = new_account_and_address();
+        let (_, receiver_address1) = new_account_and_address();
         let outgoing_payload1 = generate_payload(DeniablePayloadType::SignalMessage);
 
-        let (_, reciver_address2) = new_account_and_address();
+        let (_, receiver_address2) = new_account_and_address();
         let outgoing_payload2 = generate_payload(DeniablePayloadType::SignalMessage);
         let outgoing_payload3 = generate_payload(DeniablePayloadType::KeyResponse);
 
         let _ = denim_manager
-            .set_deniable_payloads(&reciver_address1, vec![outgoing_payload1.clone()])
+            .set_deniable_payloads(&receiver_address1, vec![outgoing_payload1.clone()])
             .await;
 
         let _ = denim_manager
             .set_deniable_payloads(
-                &reciver_address2,
+                &receiver_address2,
                 vec![outgoing_payload2.clone(), outgoing_payload3.clone()],
             )
             .await;
 
         let result_outgoing_payloads1 = denim_manager
-            .get_deniable_payloads(&reciver_address1)
+            .get_deniable_payloads(&receiver_address1)
             .await
             .unwrap();
 
         let result_outgoing_payloads2 = denim_manager
-            .get_deniable_payloads(&reciver_address2)
+            .get_deniable_payloads(&receiver_address2)
             .await
             .unwrap();
 
@@ -765,7 +775,7 @@ pub mod denim_manager_tests {
         let denim_manager = init_manager().await;
         let connection = denim_manager.chunk_cache.get_connection().await.unwrap();
 
-        let (_, reciver_address) = new_account_and_address();
+        let (_, receiver_address) = new_account_and_address();
 
         let outgoing_payload = create_deniable_payload(
             DeniablePayload::SignalMessage(SignalMessage::default()),
@@ -773,12 +783,12 @@ pub mod denim_manager_tests {
         );
 
         let _ = denim_manager
-            .set_deniable_payloads(&reciver_address, vec![outgoing_payload.clone()])
+            .set_deniable_payloads(&receiver_address, vec![outgoing_payload.clone()])
             .await
             .unwrap();
 
         let result_outgoing_payloads_raw = denim_manager
-            .get_deniable_payloads_raw(&reciver_address)
+            .get_deniable_payloads_raw(&receiver_address)
             .await
             .unwrap();
 
@@ -801,7 +811,7 @@ pub mod denim_manager_tests {
         let denim_manager = init_manager().await;
         let connection = denim_manager.chunk_cache.get_connection().await.unwrap();
 
-        let (_, reciver_address) = new_account_and_address();
+        let (_, receiver_address) = new_account_and_address();
 
         let outgoing_payload1 = create_deniable_payload(
             DeniablePayload::SignalMessage(SignalMessage::default()),
@@ -815,14 +825,14 @@ pub mod denim_manager_tests {
 
         let _ = denim_manager
             .set_deniable_payloads(
-                &reciver_address,
+                &receiver_address,
                 vec![outgoing_payload1.clone(), outgoing_payload2.clone()],
             )
             .await
             .unwrap();
 
         let result_outgoing_payloads_raw = denim_manager
-            .get_deniable_payloads_raw(&reciver_address)
+            .get_deniable_payloads_raw(&receiver_address)
             .await
             .unwrap();
 
@@ -850,5 +860,57 @@ pub mod denim_manager_tests {
         assert!(pending_chunks.is_empty());
         assert_eq!(result_payloads.len(), 2);
         assert_eq!(result_payloads, vec![outgoing_payload1, outgoing_payload2]);
+    }
+
+    #[tokio::test]
+    async fn test_take_deniable_payload_data() {
+        let denim_manager = init_manager().await;
+        let connection = denim_manager.chunk_cache.get_connection().await.unwrap();
+
+        let (_, receiver_address) = new_account_and_address();
+
+        let outgoing_payload1 = create_deniable_payload(
+            DeniablePayload::SignalMessage(SignalMessage::default()),
+            "A message to Bob is here written",
+        );
+
+        let _ = denim_manager
+            .set_deniable_payloads(&receiver_address, vec![outgoing_payload1.clone()])
+            .await
+            .unwrap();
+
+        let outgoing_payloads = denim_manager
+            .get_deniable_payloads_raw(&receiver_address)
+            .await
+            .unwrap();
+
+        let payload_subset1 = denim_manager
+            .take_values(&receiver_address, 25)
+            .await
+            .unwrap();
+
+        let payload_subset2 = denim_manager
+            .take_values(&receiver_address, 25)
+            .await
+            .unwrap();
+
+        let payload_subset3 = denim_manager
+            .take_values(&receiver_address, 6)
+            .await
+            .unwrap();
+
+        let result_outgoing_payload =
+            vec![payload_subset1, payload_subset2, payload_subset3].concat();
+
+        let result_outgoing_payloads_empty = denim_manager
+            .get_deniable_payloads_raw(&receiver_address)
+            .await
+            .unwrap();
+
+        // Teardown cache
+        teardown(&denim_manager.chunk_cache.test_key, connection).await;
+
+        assert!(result_outgoing_payloads_empty[0].is_empty());
+        assert_eq!(result_outgoing_payload, outgoing_payloads[0]);
     }
 }

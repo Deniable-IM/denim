@@ -147,6 +147,19 @@ where
         Ok(redis::decode_raw(values)?)
     }
 
+    pub async fn take_values(
+        &self,
+        address: &ProtocolAddress,
+        buffer: Buffer,
+        data_size: usize,
+    ) -> Result<Vec<u8>> {
+        let connection = self.pool.get().await?;
+        let queue_key = self.get_queue_key(address, buffer);
+        let queue_lock_key = self.get_persist_in_progress_key(address, buffer);
+
+        redis::take_values(connection, queue_key, queue_lock_key, data_size).await
+    }
+
     pub async fn add_availability_listener(
         &mut self,
         address: &ProtocolAddress,
