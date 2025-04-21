@@ -7,7 +7,7 @@ use crate::{
     },
     storage::redis::{self, Decoder},
 };
-use anyhow::Result;
+use anyhow::{Ok, Result};
 use common::web_api::DeniablePayload;
 use deadpool_redis::Connection;
 use libsignal_core::ProtocolAddress;
@@ -156,21 +156,33 @@ where
         buffer: Buffer,
         data_size: usize,
     ) -> Result<Vec<Vec<u8>>> {
-        let connection = self.pool.get().await?;
         let queue_key = self.get_queue_key(address, buffer);
         let queue_lock_key = self.get_persist_in_progress_key(address, buffer);
         let queue_metadata_key: String = self.get_queue_metadata_key(address, buffer);
         let queue_total_index_key: String = self.get_queue_index_key(buffer);
 
-        redis::take_values(
-            connection,
-            queue_key,
-            queue_metadata_key,
-            queue_total_index_key,
-            queue_lock_key,
-            data_size,
-        )
-        .await
+        let mut result = Vec::new();
+        let mut take = data_size;
+        while take > 0 {
+            let connection = self.pool.get().await?;
+            let (data, taken) = redis::take_value(
+                connection,
+                queue_key.clone(),
+                queue_metadata_key.clone(),
+                queue_total_index_key.clone(),
+                queue_lock_key.clone(),
+                take,
+            )
+            .await?;
+            if taken == 0 {
+                break;
+            } else {
+                take -= taken;
+            }
+            result.push(data);
+        }
+
+        Ok(result)
     }
 
     pub async fn add_availability_listener(

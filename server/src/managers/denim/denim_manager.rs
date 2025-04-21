@@ -917,7 +917,7 @@ pub mod denim_manager_tests {
     }
 
     #[tokio::test]
-    async fn test_take_multiple_deniable_payloads_data() {
+    async fn test_take_multiple_deniable_payloads_data_exact_amount() {
         let denim_manager = init_manager().await;
         let connection = denim_manager.chunk_cache.get_connection().await.unwrap();
 
@@ -945,15 +945,11 @@ pub mod denim_manager_tests {
             .get_deniable_payloads_raw(&receiver_address)
             .await
             .unwrap();
-        println!("outgoing_payloads: {:?}", outgoing_payloads);
 
-        let payload_subset0 = denim_manager
-            .take_values(&receiver_address, 56)
+        let result_taken_values = denim_manager
+            .take_values(&receiver_address, 112)
             .await
             .unwrap();
-        println!("payload_subset0: {:?}", payload_subset0);
-
-        let result_outgoing_payload = payload_subset0;
 
         let result_outgoing_payloads_empty = denim_manager
             .get_deniable_payloads_raw(&receiver_address)
@@ -963,13 +959,7 @@ pub mod denim_manager_tests {
         // Teardown cache
         teardown(&denim_manager.chunk_cache.test_key, connection).await;
 
-        println!(
-            "result_outgoing_payloads_empty: {:?}",
-            result_outgoing_payloads_empty
-        );
-
-        assert_eq!(1, 2);
         assert!(result_outgoing_payloads_empty.is_empty());
-        assert_eq!(result_outgoing_payload, outgoing_payloads);
+        assert_eq!(result_taken_values, outgoing_payloads);
     }
 }

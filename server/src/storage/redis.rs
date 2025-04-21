@@ -76,14 +76,10 @@ pub(crate) fn to_string(value: &Value) -> Result<String> {
 }
 
 pub(crate) fn get_field(value: &Value) -> Result<u64> {
-    println!("value: {:?}", value);
     let string = Vec::<String>::from_redis_value(value)?
         .get(0)
         .ok_or_else(|| anyhow!("Failed"))?
         .to_string();
-    // let string = values.get(0).ok_or_else(|| anyhow!("asd"))?;
-
-    println!("string: {:}", string);
     let field = string.split(":").nth(0).ok_or_else(|| anyhow!("Failed"))?;
     Ok(field.parse()?)
 }
@@ -300,10 +296,64 @@ pub async fn get_values(
     Ok(values)
 }
 
+/// Take part of redis value out and remove
+pub async fn take_value(
+    mut connection: Connection,
+    queue_key: String,
+    queue_metadata_key: String,
+    queue_total_index_key: String,
+    queue_lock_key: String,
+    data_size: usize,
+) -> Result<(Vec<u8>, usize)> {
+    // Return early of no first value
+    let first = match get_first(&mut connection, &queue_key, &queue_lock_key).await {
+        anyhow::Result::Ok(value) => value,
+        Err(_) => return Ok((Vec::new(), 0)),
+    };
+
+    let field_id = get_field(&first)?;
+    let mut value = Bytes::decode(vec![first.clone()])?
+        .first()
+        .ok_or_else(|| anyhow!("Failed to decode value."))?
+        .clone();
+
+    // Get some data from first value and remove
+    if data_size < value.len() {
+        let rest = value.split_off(data_size);
+        let updated = update_value(&mut connection, &queue_key, field_id, rest).await?;
+        if !updated {
+            return Err(anyhow!("Failed to update value."));
+        }
+        return Ok((value.clone(), value.len()));
+    // Get whole of first value and remove
+    } else {
+        // Get guid for proper removal
+        let field_guid: Option<String> = cmd("HGET")
+            .arg(format! {"{}:rev", &queue_metadata_key})
+            .arg(&field_id)
+            .query_async(&mut connection)
+            .await?;
+        // Delete and retrieve
+        if let Some(guid) = field_guid.clone() {
+            let removed: Vec<Vec<u8>> = remove(
+                connection,
+                queue_key,
+                queue_metadata_key,
+                queue_total_index_key,
+                vec![guid],
+            )
+            .await?;
+            let value = removed.into_iter().flatten().collect::<Vec<u8>>();
+            return Ok((value.clone(), value.len()));
+        }
+        return Err(anyhow!("Failed to take values: field guid not found."));
+    }
+}
+
 async fn get_first(
     connection: &mut Connection,
-    queue_key: String,
-    queue_lock_key: String,
+    queue_key: &str,
+    queue_lock_key: &str,
 ) -> Result<Value> {
     let locked = cmd("GET")
         .arg(&queue_lock_key)
@@ -376,54 +426,4 @@ async fn update_value(
     (added == removed)
         .then_some(true)
         .ok_or_else(|| anyhow!("Update failed!"))
-}
-
-/// Take part of redis value out and remove
-pub async fn take_values(
-    mut connection: Connection,
-    queue_key: String,
-    queue_metadata_key: String,
-    queue_total_index_key: String,
-    queue_lock_key: String,
-    data_size: usize,
-) -> Result<Vec<Vec<u8>>> {
-    let first = get_first(&mut connection, queue_key.clone(), queue_lock_key).await?;
-    let field_id = get_field(&first)?;
-    let mut value = Bytes::decode(vec![first.clone()])?
-        .first()
-        .ok_or_else(|| anyhow!("Failed to decode value."))?
-        .clone();
-
-    if data_size < value.len() {
-        let rest = value.split_off(data_size);
-        let updated = update_value(&mut connection, &queue_key, field_id, rest).await?;
-        if !updated {
-            return Err(anyhow!("Failed to update value."));
-        }
-        return Ok(vec![value]);
-    } else {
-        // Get guid for proper removal
-        let field_guid: Option<String> = cmd("HGET")
-            .arg(format! {"{}:rev", &queue_metadata_key})
-            .arg(&field_id)
-            .query_async(&mut connection)
-            .await?;
-
-        // Delete and retrieve
-        if let Some(guid) = field_guid.clone() {
-            let removed: Vec<Vec<u8>> = remove(
-                connection,
-                queue_key,
-                queue_metadata_key,
-                queue_total_index_key,
-                vec![guid],
-            )
-            .await?;
-            println!("REMOVED: {:?}", removed);
-            return Ok(removed.clone());
-            // if value.len() < data_size {
-            // }
-        }
-        return Err(anyhow!("Failed to take values: field guid not found."));
-    }
 }
