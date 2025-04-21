@@ -1,58 +1,70 @@
 use anyhow::{anyhow, Ok, Result};
 use base64::{prelude::BASE64_STANDARD, Engine as _};
+use bon::vec;
 use deadpool_redis::Connection;
 use redis::{cmd, FromRedisValue, Value};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const PAGE_SIZE: u32 = 100;
 
-pub(crate) fn decode<T>(values: Vec<Value>) -> Result<Vec<T>>
-where
-    T: serde::de::DeserializeOwned,
-{
-    let strings = values
-        .into_iter()
-        .map(|v| String::from_redis_value(&v))
-        .collect::<redis::RedisResult<Vec<String>>>()?;
+/// Default implementation
+pub trait Decoder<T> {
+    fn decode(values: Vec<Value>) -> Result<Vec<T>>
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        let strings = values
+            .into_iter()
+            .map(|v| String::from_redis_value(&v))
+            .collect::<redis::RedisResult<Vec<String>>>()?;
 
-    let data = strings
-        .into_iter()
-        .map(|v| {
-            let base64 = v
-                .split(":")
-                .nth(1)
-                .expect("Redis value in wrong delimiter format!");
-            let data = BASE64_STANDARD
-                .decode(base64)
-                .expect("Redis value not base64! ");
-            bincode::deserialize(&data)
-        })
-        .collect::<Result<Vec<T>, _>>()?;
+        let data = strings
+            .into_iter()
+            .map(|v| {
+                let base64 = v
+                    .split(":")
+                    .nth(1)
+                    .expect("Redis value in wrong delimiter format!");
+                let data = BASE64_STANDARD
+                    .decode(base64)
+                    .expect("Redis value not base64! ");
+                bincode::deserialize(&data)
+            })
+            .collect::<Result<Vec<T>, _>>()?;
 
-    Ok(data)
+        Ok(data)
+    }
 }
 
-pub(crate) fn decode_raw(values: Vec<Value>) -> Result<Vec<Vec<u8>>> {
-    let strings = values
-        .into_iter()
-        .map(|v| String::from_redis_value(&v))
-        .collect::<redis::RedisResult<Vec<String>>>()?;
+/// Use default implementaion unless specified
+pub struct Object<T>(T);
+impl<T> Decoder<T> for Object<T> {} //where T: serde::de::DeserializeOwned {}
 
-    let data = strings
-        .into_iter()
-        .map(|v| {
-            let base64 = v
-                .split(":")
-                .nth(1)
-                .expect("Redis value in wrong delimiter format!");
-            let data = BASE64_STANDARD
-                .decode(base64)
-                .map_err(|err| anyhow!("Redis value not base64!: {err}"))?;
-            Ok(data)
-        })
-        .collect::<Result<Vec<Vec<u8>>>>()?;
+/// Specified implementation to get bytes
+pub type Bytes = Vec<u8>;
+impl Decoder<Vec<u8>> for Bytes {
+    fn decode(values: Vec<Value>) -> Result<Vec<Vec<u8>>> {
+        let strings = values
+            .into_iter()
+            .map(|v| String::from_redis_value(&v))
+            .collect::<redis::RedisResult<Vec<String>>>()?;
 
-    Ok(data)
+        let data = strings
+            .into_iter()
+            .map(|v| {
+                let base64 = v
+                    .split(":")
+                    .nth(1)
+                    .expect("Redis value in wrong delimiter format!");
+                let data = BASE64_STANDARD
+                    .decode(base64)
+                    .map_err(|err| anyhow!("Redis value not base64!: {err}"))?;
+                Ok(data)
+            })
+            .collect::<Result<Vec<Vec<u8>>>>()?;
+
+        Ok(data)
+    }
 }
 
 pub(crate) fn to_string(value: &Value) -> Result<String> {
@@ -131,6 +143,15 @@ pub async fn insert(
         .query_async::<()>(&mut connection)
         .await?;
 
+    // Allow reverse loopkup
+    #[rustfmt::skip]
+    cmd("HSET")
+        .arg(format!{"{}:rev", &queue_metadata_key})  // key (hash)
+        .arg(value_id)                                // field
+        .arg(field_guid)                              // value
+        .query_async::<()>(&mut connection)
+        .await?;
+
     #[rustfmt::skip]
     cmd("EXPIRE")
         .arg(&queue_key)           // key (hash)
@@ -167,7 +188,7 @@ pub async fn remove<T>(
     field_guids: Vec<String>,
 ) -> Result<Vec<T>>
 where
-    T: serde::de::DeserializeOwned,
+    T: serde::de::DeserializeOwned + Decoder<T>,
 {
     let mut removed_values = Vec::new();
 
@@ -206,8 +227,14 @@ where
                 .query_async::<()>(&mut connection)
                 .await?;
 
+            cmd("HDEL")
+                .arg(&format! {"{}:rev", &queue_metadata_key})
+                .arg(&value_id)
+                .query_async::<()>(&mut connection)
+                .await?;
+
             if let Some(values) = values {
-                for data in decode(values)? {
+                for data in T::decode(values)? {
                     removed_values.push(data);
                 }
             }
@@ -303,7 +330,7 @@ async fn get_first(
 
 async fn update_value(
     connection: &mut Connection,
-    queue_key: String,
+    queue_key: &str,
     field_id: u64,
     new_value: Vec<u8>,
 ) -> Result<bool> {
@@ -355,18 +382,48 @@ async fn update_value(
 pub async fn take_values(
     mut connection: Connection,
     queue_key: String,
+    queue_metadata_key: String,
+    queue_total_index_key: String,
     queue_lock_key: String,
     data_size: usize,
-) -> Result<Vec<u8>> {
+) -> Result<Vec<Vec<u8>>> {
     let first = get_first(&mut connection, queue_key.clone(), queue_lock_key).await?;
     let field_id = get_field(&first)?;
-    let mut value = decode_raw(vec![first.clone()])?[0].clone();
-    let rest = value.split_off(data_size);
+    let mut value = Bytes::decode(vec![first.clone()])?
+        .first()
+        .ok_or_else(|| anyhow!("Failed to decode value."))?
+        .clone();
 
-    let updated = update_value(&mut connection, queue_key, field_id, rest).await?;
-    if !updated {
-        return Err(anyhow!("Failed to update value."));
+    if data_size < value.len() {
+        let rest = value.split_off(data_size);
+        let updated = update_value(&mut connection, &queue_key, field_id, rest).await?;
+        if !updated {
+            return Err(anyhow!("Failed to update value."));
+        }
+        return Ok(vec![value]);
+    } else {
+        // Get guid for proper removal
+        let field_guid: Option<String> = cmd("HGET")
+            .arg(format! {"{}:rev", &queue_metadata_key})
+            .arg(&field_id)
+            .query_async(&mut connection)
+            .await?;
+
+        // Delete and retrieve
+        if let Some(guid) = field_guid.clone() {
+            let removed: Vec<Vec<u8>> = remove(
+                connection,
+                queue_key,
+                queue_metadata_key,
+                queue_total_index_key,
+                vec![guid],
+            )
+            .await?;
+            println!("REMOVED: {:?}", removed);
+            return Ok(removed.clone());
+            // if value.len() < data_size {
+            // }
+        }
+        return Err(anyhow!("Failed to take values: field guid not found."));
     }
-
-    Ok(value)
 }

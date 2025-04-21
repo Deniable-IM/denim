@@ -5,7 +5,7 @@ use crate::{
         manager::Manager,
         message::message_cache::{self, MessageCache},
     },
-    storage::redis::{self},
+    storage::redis::{self, Decoder},
 };
 use anyhow::Result;
 use common::web_api::DenimChunk;
@@ -13,6 +13,9 @@ use deadpool_redis::Connection;
 use libsignal_core::ProtocolAddress;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::Mutex;
+
+/// Use default decoder implementation
+impl Decoder<DenimChunk> for DenimChunk {}
 
 type ListenerMap<T> = Arc<Mutex<HashMap<String, Arc<Mutex<T>>>>>;
 
@@ -127,7 +130,7 @@ where
             return Ok(Vec::new());
         }
 
-        Ok(redis::decode(values)?)
+        Ok(DenimChunk::decode(values)?)
     }
 
     pub async fn add_availability_listener(
@@ -260,7 +263,7 @@ pub mod chunk_cache_tests {
 
         teardown(&chunk_cache.test_key, connection).await;
 
-        let result = redis::decode::<DenimChunk>(values).unwrap();
+        let result = DenimChunk::decode(values).unwrap();
         assert_eq!(chunk, result[0]);
     }
 

@@ -5,14 +5,17 @@ use crate::{
         manager::Manager,
         message::message_cache::{self, MessageCache},
     },
-    storage::redis::{self},
+    storage::redis::{self, Decoder},
 };
 use anyhow::Result;
-use common::web_api::{DeniablePayload, DenimChunk};
+use common::web_api::DeniablePayload;
 use deadpool_redis::Connection;
 use libsignal_core::ProtocolAddress;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::Mutex;
+
+/// Use default decoder implementation
+impl Decoder<DeniablePayload> for DeniablePayload {}
 
 type ListenerMap<T> = Arc<Mutex<HashMap<String, Arc<Mutex<T>>>>>;
 
@@ -127,7 +130,7 @@ where
             return Ok(Vec::new());
         }
 
-        Ok(redis::decode(values)?)
+        Ok(DeniablePayload::decode(values)?)
     }
 
     pub async fn get_all_payloads_raw(
@@ -144,7 +147,7 @@ where
             return Ok(Vec::new());
         }
 
-        Ok(redis::decode_raw(values)?)
+        Ok(redis::Bytes::decode(values)?)
     }
 
     pub async fn take_values(
@@ -152,12 +155,22 @@ where
         address: &ProtocolAddress,
         buffer: Buffer,
         data_size: usize,
-    ) -> Result<Vec<u8>> {
+    ) -> Result<Vec<Vec<u8>>> {
         let connection = self.pool.get().await?;
         let queue_key = self.get_queue_key(address, buffer);
         let queue_lock_key = self.get_persist_in_progress_key(address, buffer);
+        let queue_metadata_key: String = self.get_queue_metadata_key(address, buffer);
+        let queue_total_index_key: String = self.get_queue_index_key(buffer);
 
-        redis::take_values(connection, queue_key, queue_lock_key, data_size).await
+        redis::take_values(
+            connection,
+            queue_key,
+            queue_metadata_key,
+            queue_total_index_key,
+            queue_lock_key,
+            data_size,
+        )
+        .await
     }
 
     pub async fn add_availability_listener(
@@ -239,18 +252,12 @@ pub mod payload_cache_tests {
     use super::*;
     use crate::test_utils::{
         message_cache::{
-            generate_envelope, generate_payload, generate_uuid, teardown, DeniablePayloadType,
-            MockWebSocketConnection,
+            generate_payload, generate_uuid, teardown, DeniablePayloadType, MockWebSocketConnection,
         },
         user::new_protocol_address,
     };
     use ::redis::{cmd, Value};
-    use common::web_api::{
-        PreKeyRequest, PreKeyResponse, PreKeyResponseItem, SignalMessage, UploadPreKey,
-        UploadSignedPreKey,
-    };
-    use libsignal_protocol::{kem, IdentityKeyPair, KeyPair};
-    use rand::rngs::OsRng;
+    use common::web_api::SignalMessage;
 
     #[tokio::test]
     async fn test_availability_listener_new_messages() {
@@ -299,7 +306,7 @@ pub mod payload_cache_tests {
 
         teardown(&payload_cache.test_key, connection).await;
 
-        let result = redis::decode::<DeniablePayload>(values).unwrap();
+        let result = DeniablePayload::decode(values).unwrap();
         assert_eq!(payload, result[0]);
     }
 
@@ -346,7 +353,7 @@ pub mod payload_cache_tests {
 
         teardown(&payload_cache.test_key, connection).await;
 
-        let result = redis::decode::<DeniablePayload>(values).unwrap();
+        let result = DeniablePayload::decode(values).unwrap();
         assert_eq!(4, result.len());
         assert_eq!(payload1, result[0]);
         assert_eq!(payload2, result[1]);
