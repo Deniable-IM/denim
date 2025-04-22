@@ -178,8 +178,8 @@ where
                 break;
             } else {
                 take -= taken;
+                result.push(data);
             }
-            result.push(data);
         }
 
         Ok(result)

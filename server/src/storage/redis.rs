@@ -305,7 +305,7 @@ pub async fn take_value(
     queue_lock_key: String,
     data_size: usize,
 ) -> Result<(Vec<u8>, usize)> {
-    // Return early of no first value
+    // Return early when buffer is empty
     let first = match get_first(&mut connection, &queue_key, &queue_lock_key).await {
         anyhow::Result::Ok(value) => value,
         Err(_) => return Ok((Vec::new(), 0)),
