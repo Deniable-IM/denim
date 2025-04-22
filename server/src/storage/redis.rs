@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Ok, Result};
 use base64::{prelude::BASE64_STANDARD, Engine as _};
 use bon::vec;
+use common::deniable::chunk::ChunkType;
 use deadpool_redis::Connection;
 use redis::{cmd, FromRedisValue, Value};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -317,7 +318,7 @@ pub async fn take_value(
     // Return early when buffer is empty
     let first = match get_first(&mut connection, &queue_key, &queue_lock_key).await {
         anyhow::Result::Ok(value) => value,
-        Err(_) => return Ok((Vec::new(), 0, 1)),
+        Err(_) => return Ok((Vec::new(), 0, ChunkType::Dummy.into())),
     };
 
     let field_id = get_field_metadata(&first)?;
@@ -333,7 +334,7 @@ pub async fn take_value(
         if !updated {
             return Err(anyhow!("Failed to update value."));
         }
-        return Ok((value.clone(), value.len(), order));
+        return Ok((value.clone(), value.len(), ChunkType::Data(order).into()));
     // Get whole of first value and remove
     } else {
         // Get guid for proper removal
@@ -353,7 +354,7 @@ pub async fn take_value(
             )
             .await?;
             let value = removed.into_iter().flatten().collect::<Vec<u8>>();
-            return Ok((value.clone(), value.len(), 2));
+            return Ok((value.clone(), value.len(), ChunkType::Final.into()));
         }
         return Err(anyhow!("Failed to take values: field guid not found."));
     }
@@ -393,28 +394,21 @@ async fn update_value(
     field_id: u64,
     new_value: Vec<u8>,
 ) -> Result<(bool, i32)> {
-    let message_guid_exists = cmd("ZRANGEBYSCORE")
+    let value_guid_exists = cmd("ZRANGEBYSCORE")
         .arg(&queue_key)
         .arg(field_id)
         .arg(field_id)
         .query_async::<Vec<Value>>(connection)
         .await?;
 
-    if message_guid_exists.is_empty() {
+    if value_guid_exists.is_empty() {
         return Err(anyhow!("Failed to update non-existent value."));
     }
 
-    let old_value = message_guid_exists
-        .get(0)
-        .ok_or_else(|| anyhow!("failed"))?;
+    let value = value_guid_exists.get(0).ok_or_else(|| anyhow!("failed"))?;
 
-    let old_order = get_order_metadata(old_value)?;
-    println!("METADATA: {:?}", old_order);
-
-    let old_entry = to_string(old_value)?;
-    let new_entry = create_payload_entry(field_id, new_value, (old_order - 1) as i32);
-
-    // Remove old value
+    // Remove old entry
+    let old_entry = to_string(value)?;
     let removed = cmd("ZREM")
         .arg(&queue_key)
         .arg(old_entry)
@@ -424,7 +418,9 @@ async fn update_value(
         return Err(anyhow!("Failed to remove value!"));
     }
 
-    // Set new value
+    // Advance order by 1 and set new entry
+    let order = get_order_metadata(value)?;
+    let new_entry = create_payload_entry(field_id, new_value, (order - 1) as i32);
     let added = cmd("ZADD")
         .arg(queue_key)
         .arg(field_id)
@@ -439,5 +435,5 @@ async fn update_value(
         .then_some(true)
         .ok_or_else(|| anyhow!("Update failed!"))?;
 
-    Ok((updated, old_order as i32))
+    Ok((updated, order as i32))
 }
