@@ -67,7 +67,7 @@ impl Decoder<Vec<u8>> for Bytes {
     }
 }
 
-pub(crate) fn to_string(value: &Value) -> Result<String> {
+fn to_string(value: &Value) -> Result<String> {
     let string = Vec::<String>::from_redis_value(value)?
         .get(0)
         .ok_or_else(|| anyhow!("Failed"))?
@@ -75,17 +75,26 @@ pub(crate) fn to_string(value: &Value) -> Result<String> {
     Ok(string)
 }
 
-pub(crate) fn get_field(value: &Value) -> Result<u64> {
-    let string = Vec::<String>::from_redis_value(value)?
-        .get(0)
+fn get_field_metadata(value: &Value) -> Result<u64> {
+    to_string(value)?
+        .split(":")
+        .nth(0)
         .ok_or_else(|| anyhow!("Failed"))?
-        .to_string();
-    let field = string.split(":").nth(0).ok_or_else(|| anyhow!("Failed"))?;
-    Ok(field.parse()?)
+        .parse()
+        .map_err(|e| anyhow::Error::from(e))
 }
 
-pub(crate) fn create_entry(id: u64, value: Vec<u8>) -> String {
-    format!("{}:{}", id, BASE64_STANDARD.encode(&value))
+fn get_order_metadata(value: &Value) -> Result<i64> {
+    to_string(value)?
+        .split(":")
+        .nth(2)
+        .ok_or_else(|| anyhow!("Failed"))?
+        .parse()
+        .map_err(|e| anyhow::Error::from(e))
+}
+
+fn create_payload_entry(id: u64, value: Vec<u8>, order: i32) -> String {
+    format!("{}:{}:{}", id, BASE64_STANDARD.encode(&value), order)
 }
 
 pub async fn insert(
@@ -120,7 +129,7 @@ pub async fn insert(
         .query_async::<u64>(&mut connection)
         .await?;
 
-    let value_unique = format!("{}:{}", value_id, BASE64_STANDARD.encode(&value));
+    let value_unique = format!("{}:{}:{}", value_id, BASE64_STANDARD.encode(&value), 0);
 
     #[rustfmt::skip]
     cmd("ZADD")
@@ -304,14 +313,14 @@ pub async fn take_value(
     queue_total_index_key: String,
     queue_lock_key: String,
     data_size: usize,
-) -> Result<(Vec<u8>, usize)> {
+) -> Result<(Vec<u8>, usize, i32)> {
     // Return early when buffer is empty
     let first = match get_first(&mut connection, &queue_key, &queue_lock_key).await {
         anyhow::Result::Ok(value) => value,
-        Err(_) => return Ok((Vec::new(), 0)),
+        Err(_) => return Ok((Vec::new(), 0, 1)),
     };
 
-    let field_id = get_field(&first)?;
+    let field_id = get_field_metadata(&first)?;
     let mut value = Bytes::decode(vec![first.clone()])?
         .first()
         .ok_or_else(|| anyhow!("Failed to decode value."))?
@@ -320,11 +329,11 @@ pub async fn take_value(
     // Get some data from first value and remove
     if data_size < value.len() {
         let rest = value.split_off(data_size);
-        let updated = update_value(&mut connection, &queue_key, field_id, rest).await?;
+        let (updated, order) = update_value(&mut connection, &queue_key, field_id, rest).await?;
         if !updated {
             return Err(anyhow!("Failed to update value."));
         }
-        return Ok((value.clone(), value.len()));
+        return Ok((value.clone(), value.len(), order));
     // Get whole of first value and remove
     } else {
         // Get guid for proper removal
@@ -344,7 +353,7 @@ pub async fn take_value(
             )
             .await?;
             let value = removed.into_iter().flatten().collect::<Vec<u8>>();
-            return Ok((value.clone(), value.len()));
+            return Ok((value.clone(), value.len(), 2));
         }
         return Err(anyhow!("Failed to take values: field guid not found."));
     }
@@ -383,7 +392,7 @@ async fn update_value(
     queue_key: &str,
     field_id: u64,
     new_value: Vec<u8>,
-) -> Result<bool> {
+) -> Result<(bool, i32)> {
     let message_guid_exists = cmd("ZRANGEBYSCORE")
         .arg(&queue_key)
         .arg(field_id)
@@ -399,8 +408,11 @@ async fn update_value(
         .get(0)
         .ok_or_else(|| anyhow!("failed"))?;
 
+    let old_order = get_order_metadata(old_value)?;
+    println!("METADATA: {:?}", old_order);
+
     let old_entry = to_string(old_value)?;
-    let new_entry = create_entry(field_id, new_value);
+    let new_entry = create_payload_entry(field_id, new_value, (old_order - 1) as i32);
 
     // Remove old value
     let removed = cmd("ZREM")
@@ -423,7 +435,9 @@ async fn update_value(
         return Err(anyhow!("Failed to add value!"));
     }
 
-    (added == removed)
+    let updated = (added == removed)
         .then_some(true)
-        .ok_or_else(|| anyhow!("Update failed!"))
+        .ok_or_else(|| anyhow!("Update failed!"))?;
+
+    Ok((updated, old_order as i32))
 }

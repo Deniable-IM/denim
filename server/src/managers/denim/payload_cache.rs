@@ -155,7 +155,7 @@ where
         address: &ProtocolAddress,
         buffer: Buffer,
         data_size: usize,
-    ) -> Result<Vec<Vec<u8>>> {
+    ) -> Result<Vec<(Vec<u8>, i32)>> {
         let queue_key = self.get_queue_key(address, buffer);
         let queue_lock_key = self.get_persist_in_progress_key(address, buffer);
         let queue_metadata_key: String = self.get_queue_metadata_key(address, buffer);
@@ -165,7 +165,7 @@ where
         let mut take = data_size;
         while take > 0 {
             let connection = self.pool.get().await?;
-            let (data, taken) = redis::take_value(
+            let (data, taken, order) = redis::take_value(
                 connection,
                 queue_key.clone(),
                 queue_metadata_key.clone(),
@@ -178,7 +178,7 @@ where
                 break;
             } else {
                 take -= taken;
-                result.push(data);
+                result.push((data, order));
             }
         }
 
