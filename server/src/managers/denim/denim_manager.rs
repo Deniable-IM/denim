@@ -3,7 +3,8 @@ use crate::{
     availability_listener::AvailabilityListener, managers::manager::Manager,
     storage::database::SignalDatabase,
 };
-use anyhow::{anyhow, Ok, Result};
+use anyhow::{Ok, Result};
+use common::deniable::chunk::ChunkType;
 use common::web_api::{DeniablePayload, DenimChunk};
 use libsignal_core::ProtocolAddress;
 use uuid::Uuid;
@@ -150,11 +151,9 @@ where
         let mut iterator = chunks.into_iter();
 
         while let Some(mut chunk) = iterator.next() {
-            match chunk.flags {
-                // Dummy
-                1 => continue,
-                // Final
-                2 => {
+            match ChunkType::from(chunk.flags) {
+                ChunkType::Dummy => continue,
+                ChunkType::Final => {
                     pending_chunks.sort();
                     let mut payload_data = pending_chunks
                         .iter()
@@ -164,11 +163,7 @@ where
                     payloads.push(bincode::deserialize(&payload_data)?);
                     pending_chunks.clear();
                 }
-                // Data
-                ..=0 => {
-                    pending_chunks.push(chunk.clone());
-                }
-                _ => return Err(anyhow!("Flags: {} not supported!", chunk.flags)),
+                ChunkType::Data(_) => pending_chunks.push(chunk.clone()),
             }
         }
         Ok((payloads, pending_chunks))
@@ -177,8 +172,6 @@ where
 
 #[cfg(test)]
 pub mod denim_manager_tests {
-    use std::io::Read;
-
     use common::web_api::{PayloadData, SignalMessage};
     use rand::seq::SliceRandom;
 

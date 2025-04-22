@@ -14,7 +14,7 @@ impl From<i32> for ChunkType {
             1 => ChunkType::Dummy,
             2 => ChunkType::Final,
             ..=0 => ChunkType::Data(value),
-            _ => unreachable!(),
+            v => unreachable!("ChunkType: {v} not supported!"),
         }
     }
 }
