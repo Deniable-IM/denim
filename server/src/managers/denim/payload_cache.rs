@@ -150,11 +150,11 @@ where
         Ok(redis::Bytes::decode(values)?)
     }
 
-    pub async fn take_values(
+    pub async fn dequeue_payload_data(
         &self,
         address: &ProtocolAddress,
         buffer: Buffer,
-        data_size: usize,
+        bytes_amount: usize,
     ) -> Result<Vec<(Vec<u8>, i32)>> {
         let queue_key = self.get_queue_key(address, buffer);
         let queue_lock_key = self.get_persist_in_progress_key(address, buffer);
@@ -162,10 +162,10 @@ where
         let queue_total_index_key: String = self.get_queue_index_key(buffer);
 
         let mut result = Vec::new();
-        let mut take = data_size;
+        let mut take = bytes_amount;
         while take > 0 {
             let connection = self.pool.get().await?;
-            let (data, taken, order) = redis::take_value(
+            let (data, taken, order) = redis::dequeue_bytes(
                 connection,
                 queue_key.clone(),
                 queue_metadata_key.clone(),

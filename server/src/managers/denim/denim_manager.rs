@@ -110,13 +110,13 @@ where
             .await
     }
 
-    pub async fn take_values(
+    pub async fn dequeue_payload_data(
         &self,
         receiver: &ProtocolAddress,
-        data_size: usize,
+        bytes_amount: usize,
     ) -> Result<Vec<(Vec<u8>, i32)>> {
         self.payload_cache
-            .take_values(receiver, Buffer::Receiver, data_size)
+            .dequeue_payload_data(receiver, Buffer::Receiver, bytes_amount)
             .await
     }
 
@@ -879,17 +879,17 @@ pub mod denim_manager_tests {
             .unwrap();
 
         let result_taken_values1 = denim_manager
-            .take_values(&receiver_address, 25)
+            .dequeue_payload_data(&receiver_address, 25)
             .await
             .unwrap();
 
         let result_taken_values2 = denim_manager
-            .take_values(&receiver_address, 25)
+            .dequeue_payload_data(&receiver_address, 25)
             .await
             .unwrap();
 
         let result_taken_values3 = denim_manager
-            .take_values(&receiver_address, 6)
+            .dequeue_payload_data(&receiver_address, 6)
             .await
             .unwrap();
 
@@ -946,7 +946,7 @@ pub mod denim_manager_tests {
             .unwrap();
 
         let result_taken_values = denim_manager
-            .take_values(&receiver_address, 112)
+            .dequeue_payload_data(&receiver_address, 112)
             .await
             .unwrap()
             .into_iter()
@@ -996,7 +996,7 @@ pub mod denim_manager_tests {
             .unwrap();
 
         let result_taken_values = denim_manager
-            .take_values(&receiver_address, 212)
+            .dequeue_payload_data(&receiver_address, 212)
             .await
             .unwrap()
             .into_iter()
@@ -1046,7 +1046,7 @@ pub mod denim_manager_tests {
             .unwrap();
 
         let result_taken_values = denim_manager
-            .take_values(&receiver_address, 12)
+            .dequeue_payload_data(&receiver_address, 12)
             .await
             .unwrap()
             .into_iter()
@@ -1096,7 +1096,7 @@ pub mod denim_manager_tests {
             .unwrap();
 
         let result_taken_values = denim_manager
-            .take_values(&receiver_address, 0)
+            .dequeue_payload_data(&receiver_address, 0)
             .await
             .unwrap();
 
@@ -1135,22 +1135,22 @@ pub mod denim_manager_tests {
             .unwrap();
 
         let result_taken_values1 = denim_manager
-            .take_values(&receiver_address, 20)
+            .dequeue_payload_data(&receiver_address, 20)
             .await
             .unwrap();
 
         let result_taken_values2 = denim_manager
-            .take_values(&receiver_address, 20)
+            .dequeue_payload_data(&receiver_address, 20)
             .await
             .unwrap();
 
         let result_taken_values3 = denim_manager
-            .take_values(&receiver_address, 15)
+            .dequeue_payload_data(&receiver_address, 15)
             .await
             .unwrap();
 
         let result_taken_values4 = denim_manager
-            .take_values(&receiver_address, 1)
+            .dequeue_payload_data(&receiver_address, 1)
             .await
             .unwrap();
 
@@ -1212,37 +1212,37 @@ pub mod denim_manager_tests {
             .collect::<Vec<u8>>();
 
         let result_taken_values1 = denim_manager
-            .take_values(&receiver_address, 20)
+            .dequeue_payload_data(&receiver_address, 20)
             .await
             .unwrap();
 
         let result_taken_values2 = denim_manager
-            .take_values(&receiver_address, 20)
+            .dequeue_payload_data(&receiver_address, 20)
             .await
             .unwrap();
 
         let result_taken_values3 = denim_manager
-            .take_values(&receiver_address, 15)
+            .dequeue_payload_data(&receiver_address, 15)
             .await
             .unwrap();
 
         let result_taken_values4 = denim_manager
-            .take_values(&receiver_address, 15)
+            .dequeue_payload_data(&receiver_address, 15)
             .await
             .unwrap();
 
         let result_taken_values5 = denim_manager
-            .take_values(&receiver_address, 20)
+            .dequeue_payload_data(&receiver_address, 20)
             .await
             .unwrap();
 
         let result_taken_values6 = denim_manager
-            .take_values(&receiver_address, 20)
+            .dequeue_payload_data(&receiver_address, 20)
             .await
             .unwrap();
 
         let result_taken_values7 = denim_manager
-            .take_values(&receiver_address, 2)
+            .dequeue_payload_data(&receiver_address, 2)
             .await
             .unwrap();
 

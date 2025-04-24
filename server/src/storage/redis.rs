@@ -307,13 +307,13 @@ pub async fn get_values(
 }
 
 /// Take part of redis value out and remove
-pub async fn take_value(
+pub async fn dequeue_bytes(
     mut connection: Connection,
     queue_key: String,
     queue_metadata_key: String,
     queue_total_index_key: String,
     queue_lock_key: String,
-    data_size: usize,
+    bytes_amount: usize,
 ) -> Result<(Vec<u8>, usize, i32)> {
     // Return early when buffer is empty
     let first = match get_first(&mut connection, &queue_key, &queue_lock_key).await {
@@ -328,8 +328,8 @@ pub async fn take_value(
         .clone();
 
     // Get some data from first value and remove
-    if data_size < value.len() {
-        let rest = value.split_off(data_size);
+    if bytes_amount < value.len() {
+        let rest = value.split_off(bytes_amount);
         let (updated, order) = update_value(&mut connection, &queue_key, field_id, rest).await?;
         if !updated {
             return Err(anyhow!("Failed to update value."));
