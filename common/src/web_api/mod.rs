@@ -315,7 +315,7 @@ pub enum RegularPayload {
     Envelope(Envelope),           // server -> Client
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub enum DeniablePayload {
     SignalMessage(SignalMessage), // client -> Server
@@ -488,14 +488,14 @@ impl SetKeyRequest {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct PreKeyRequest {
     pub service_id: String,
 }
 
 #[serde_as]
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct PreKeyResponse {
     #[serde_as(as = "Base64")]
@@ -520,7 +520,7 @@ impl PreKeyResponse {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct PreKeyResponseItem {
     device_id: u32,

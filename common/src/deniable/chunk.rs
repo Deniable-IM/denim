@@ -1,8 +1,33 @@
+use super::{constants, DeniableSendingBuffer};
+use crate::web_api::{DenimChunk, PayloadData};
 use bincode::serialize;
 
-use crate::web_api::{DenimChunk, PayloadData};
+pub enum ChunkType {
+    Data(i32),
+    Dummy,
+    Final,
+}
 
-use super::{constants, DeniableSendingBuffer};
+impl From<i32> for ChunkType {
+    fn from(value: i32) -> Self {
+        match value {
+            1 => ChunkType::Dummy,
+            2 => ChunkType::Final,
+            ..=0 => ChunkType::Data(value),
+            v => unreachable!("ChunkType: {v} not supported!"),
+        }
+    }
+}
+
+impl From<ChunkType> for i32 {
+    fn from(value: ChunkType) -> Self {
+        match value {
+            ChunkType::Dummy => 1,
+            ChunkType::Final => 2,
+            ChunkType::Data(value) => value,
+        }
+    }
+}
 
 pub struct Chunker;
 
@@ -26,7 +51,7 @@ impl Chunker {
                 if current_outgoing_message.1.len() <= chunk_size {
                     new_chunk = DenimChunk {
                         chunk: current_outgoing_message.1.to_vec(),
-                        flags: 2,
+                        flags: ChunkType::Final.into(),
                     };
                     buffer
                         .remove_outgoing_message(current_outgoing_message.0)
@@ -35,7 +60,7 @@ impl Chunker {
                 } else {
                     new_chunk = DenimChunk {
                         chunk: current_outgoing_message.1[..chunk_size].to_vec(),
-                        flags: 0,
+                        flags: ChunkType::Data(0).into(),
                     };
                     let remaining_current_outgoing_message =
                         current_outgoing_message.1[chunk_size..].to_vec();
@@ -51,7 +76,7 @@ impl Chunker {
                 //Dummy
                 new_chunk = DenimChunk {
                     chunk: vec![0; chunk_size],
-                    flags: 1,
+                    flags: ChunkType::Dummy.into(),
                 };
             }
 
@@ -83,14 +108,14 @@ impl Chunker {
                     // Deniable
                     new_chunk = DenimChunk {
                         chunk: payload_data.to_vec(),
-                        flags: 2,
+                        flags: ChunkType::Final.into(),
                     };
                     payload_data.clear();
                 } else {
                     // Data
                     new_chunk = DenimChunk {
                         chunk: payload_data[..chunk_size].to_vec(),
-                        flags: payload_data_count,
+                        flags: ChunkType::Data(payload_data_count).into(),
                     };
                     payload_data_count -= 1;
                     payload_data = payload_data[chunk_size..].to_vec();
@@ -99,7 +124,7 @@ impl Chunker {
                 // Dummy
                 new_chunk = DenimChunk {
                     chunk: vec![0; chunk_size],
-                    flags: 1,
+                    flags: ChunkType::Dummy.into(),
                 };
             }
 
