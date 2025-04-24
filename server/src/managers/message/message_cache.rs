@@ -330,12 +330,23 @@ pub mod message_cache_tests {
             .add_message_availability_listener(&address, websocket.clone())
             .await;
 
-        message_cache
-            .insert(&address, &mut envelope, &uuid)
-            .await
-            .unwrap();
+        let notify = websocket.lock().await.evoked_notify.clone();
+        let notifyed = notify.notified();
 
-        assert!(websocket.lock().await.evoked_handle_new_messages);
+        // Continue after branches complete
+        let (_, _) = tokio::join!(
+            message_cache.insert(&address, &mut envelope, &uuid),
+            notifyed
+        );
+
+        let result_evoked = *websocket
+            .lock()
+            .await
+            .evoked_handle_new_messages
+            .lock()
+            .await;
+
+        assert!(result_evoked)
     }
 
     #[tokio::test]

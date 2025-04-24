@@ -230,12 +230,23 @@ pub mod chunk_cache_tests {
             .add_availability_listener(&address, websocket.clone())
             .await;
 
-        chunk_cache
-            .insert(&address, buffer, &mut chunk, &uuid)
-            .await
-            .unwrap();
+        let notify = websocket.lock().await.evoked_notify.clone();
+        let notifyed = notify.notified();
 
-        assert!(websocket.lock().await.evoked_handle_new_messages);
+        // Continue after branches complete
+        let (_, _) = tokio::join!(
+            chunk_cache.insert(&address, buffer, &mut chunk, &uuid),
+            notifyed
+        );
+
+        let result_evoked = *websocket
+            .lock()
+            .await
+            .evoked_handle_new_messages
+            .lock()
+            .await;
+
+        assert!(result_evoked)
     }
 
     #[tokio::test]

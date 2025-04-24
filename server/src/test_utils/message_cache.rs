@@ -1,9 +1,12 @@
+use std::sync::Arc;
+
 use crate::availability_listener::AvailabilityListener;
 use common::{
     signalservice::Envelope,
     web_api::{DeniablePayload, DenimChunk, PreKeyRequest, PreKeyResponse, SignalMessage},
 };
 use redis::cmd;
+use tokio::sync::{Mutex, Notify};
 use uuid::Uuid;
 
 use super::key::{new_identity_key, new_pre_key_response_itmes};
@@ -79,15 +82,17 @@ pub fn generate_payload(payload_type: DeniablePayloadType) -> DeniablePayload {
 }
 
 pub struct MockWebSocketConnection {
-    pub evoked_handle_new_messages: bool,
-    pub evoked_handle_messages_persisted: bool,
+    pub evoked_notify: Arc<Notify>,
+    pub evoked_handle_new_messages: Arc<Mutex<bool>>,
+    pub evoked_handle_messages_persisted: Arc<Mutex<bool>>,
 }
 
 impl MockWebSocketConnection {
     pub(crate) fn new() -> Self {
         MockWebSocketConnection {
-            evoked_handle_new_messages: false,
-            evoked_handle_messages_persisted: false,
+            evoked_notify: Arc::new(Notify::new()),
+            evoked_handle_new_messages: Arc::new(Mutex::new(false)),
+            evoked_handle_messages_persisted: Arc::new(Mutex::new(false)),
         }
     }
 }
@@ -95,12 +100,16 @@ impl MockWebSocketConnection {
 #[async_trait::async_trait]
 impl AvailabilityListener for MockWebSocketConnection {
     async fn send_cached(&mut self) -> bool {
-        self.evoked_handle_new_messages = true;
-        true
+        let mut evoked = self.evoked_handle_new_messages.lock().await;
+        *evoked = true;
+        self.evoked_notify.notify_waiters();
+        *evoked
     }
 
     async fn send_persisted(&mut self) -> bool {
-        self.evoked_handle_messages_persisted = true;
-        true
+        let mut evoked = self.evoked_handle_messages_persisted.lock().await;
+        *evoked = true;
+        self.evoked_notify.notify_waiters();
+        *evoked
     }
 }

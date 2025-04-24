@@ -285,12 +285,23 @@ pub mod payload_cache_tests {
             .add_availability_listener(&address, websocket.clone())
             .await;
 
-        payload_cache
-            .insert(&address, buffer, &mut payload, &uuid)
-            .await
-            .unwrap();
+        let notify = websocket.lock().await.evoked_notify.clone();
+        let notifyed = notify.notified();
 
-        assert!(websocket.lock().await.evoked_handle_new_messages);
+        // Continue after branches complete
+        let (_, _) = tokio::join!(
+            payload_cache.insert(&address, buffer, &mut payload, &uuid),
+            notifyed
+        );
+
+        let result_evoked = *websocket
+            .lock()
+            .await
+            .evoked_handle_new_messages
+            .lock()
+            .await;
+
+        assert!(result_evoked)
     }
 
     #[tokio::test]
