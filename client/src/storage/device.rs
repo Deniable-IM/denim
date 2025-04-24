@@ -4,6 +4,7 @@ use super::database::ClientDB;
 use crate::contact_manager::{Contact, ContactName};
 use axum::async_trait;
 use base64::{prelude::BASE64_STANDARD, Engine as _};
+use common::web_api::DenimChunk;
 use libsignal_core::{Aci, DeviceId, Pni, ProtocolAddress, ServiceId};
 use libsignal_protocol::{
     Direction, GenericSignedPreKey as _, IdentityKey, IdentityKeyPair, KyberPreKeyId,
@@ -1058,6 +1059,71 @@ impl ClientDB for Device {
         Ok(())
     }
 
+    async fn try_get_key_request_sent(
+        &self,
+        service_id: String,
+    ) -> Result<Option<String>, Self::Error> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
+            SELECT
+                alias
+            FROM
+                DeniableKeyRequestsSent
+            WHERE
+                service_id = ?1
+            "#,
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        let row: Option<String> = stmt
+            .query_row([service_id], |row| Ok(row.get(0)?))
+            .optional()
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+        Ok(row)
+    }
+
+    async fn store_key_request_sent(
+        &self,
+        service_id: String,
+        alias: String,
+    ) -> Result<(), Self::Error> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
+            INSERT INTO DeniableKeyRequestsSent (service_id, alias)
+            VALUES (?1, ?2)
+            ON CONFLICT(service_id) DO UPDATE SET alias = ?3
+            "#,
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        stmt.execute(params![service_id, alias, alias])
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        Ok(())
+    }
+
+    async fn remove_key_request_sent(&self, service_id: String) -> Result<(), Self::Error> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
+            DELETE FROM
+                DeniableKeyRequestsSent
+            WHERE
+                service_id = ?1
+            "#,
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        stmt.execute(params![service_id])
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+        Ok(())
+    }
+
     async fn get_messages_awaiting_encryption(
         &self,
         alias: String,
@@ -1125,6 +1191,88 @@ impl ClientDB for Device {
 
         stmt.execute(params![message_id])
             .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+        Ok(())
+    }
+
+    async fn get_and_remove_incoming_deniable_chunks(
+        &mut self,
+    ) -> Result<Vec<DenimChunk>, Self::Error> {
+        let mut chunks = Vec::new();
+        let tx = self
+            .conn
+            .transaction()
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+        {
+            let mut stmt = tx
+                .prepare(
+                    r#"
+                SELECT
+                    id, chunk, flags
+                FROM
+                    IncomingDeniableChunk
+                "#,
+                )
+                .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+            let rows = stmt
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+                .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+            let mut delete_stmt = tx
+                .prepare(
+                    r#"
+                DELETE FROM
+                    IncomingDeniableChunk
+                WHERE
+                    id = ?1
+                "#,
+                )
+                .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+            for row in rows {
+                let chunk: (u32, Vec<u8>, i32) =
+                    row.map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+                chunks.push(DenimChunk {
+                    chunk: chunk.1,
+                    flags: chunk.2,
+                });
+
+                delete_stmt
+                    .execute(params![chunk.0])
+                    .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+            }
+        }
+        tx.commit()
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        Ok(chunks)
+    }
+
+    async fn store_incoming_deniable_chunks(
+        &mut self,
+        chunks: Vec<DenimChunk>,
+    ) -> Result<(), Self::Error> {
+        let tx = self
+            .conn
+            .transaction()
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+        {
+            let mut stmt = tx
+                .prepare(
+                    r#"
+                INSERT INTO IncomingDeniableChunk (chunk, flags)
+                VALUES (?1, ?2)
+                "#,
+                )
+                .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+            for chunk in chunks {
+                stmt.execute(params![chunk.chunk, chunk.flags])
+                    .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+            }
+        }
+        tx.commit()
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
         Ok(())
     }
 }

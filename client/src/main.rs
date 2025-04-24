@@ -1,5 +1,6 @@
 use client::Client;
 use dotenv::dotenv;
+use errors::SignalClientError;
 use regex::Regex;
 use server::SignalServer;
 use std::{
@@ -80,16 +81,21 @@ async fn receive_message(
     names: &HashMap<String, String>,
     default: &String,
 ) {
-    let msg = client.receive_message().await.expect("Expected Message");
-    let name = names
-        .get(
-            &msg.source_service_id()
-                .expect("Failed to decode")
-                .service_id_string(),
-        )
-        .unwrap_or(default);
-    let msg_text = msg.try_get_message_as_string().expect("No Text Content");
-    println!("{name}: {msg_text}");
+    let msgs = client.receive_message().await.expect("Expected Message");
+    for (i, msg) in msgs.iter().enumerate() {
+        let name = names
+            .get(
+                &msg.source_service_id()
+                    .expect("Failed to decode")
+                    .service_id_string(),
+            )
+            .unwrap_or(default);
+        let msg_text = msg.try_get_message_as_string().expect("No Text Content");
+        match i {
+            0 => println!("{name}: {msg_text}"),
+            _ => println!("deniable {name}: {msg_text}"),
+        }
+    }
 }
 
 async fn receive_all_messages(
@@ -106,10 +112,12 @@ async fn receive_all_messages(
 async fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = env::args().collect();
     dotenv()?;
-    let debug_print = match args[3].as_str() {
-        "true" => true,
-        _ => false,
-    };
+
+    let debug_print = args
+        .get(3)
+        .unwrap_or(&"false".to_owned())
+        .parse()
+        .unwrap_or(false);
 
     let (cert_path, server_url) = get_server_info();
     let mut user = make_client(&args[1], &args[2], &cert_path, &server_url).await;
@@ -140,10 +148,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
         std::io::stdin().read_line(&mut input)?;
         if input.starts_with("send") {
             if let Some(caps) = send_regex.captures(&input) {
-                if !user.has_contact(&caps["alias"]).await {
+                if user
+                    .send_message(&caps["text"], &caps["alias"])
+                    .await
+                    .is_err()
+                {
                     match user.get_service_id_from_server(&caps["alias"]).await {
                         Ok(service_id) => {
-                            user.add_contact(&caps["alias"], &service_id)
+                            user.add_contact(&caps["alias"], &service_id, None)
                                 .await
                                 .expect("No bob?");
                             contact_names
@@ -154,38 +166,42 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             continue;
                         }
                     }
-                }
-
-                user.send_message(&caps["text"], &caps["alias"]).await?;
+                    user.send_message(&caps["text"], &caps["alias"]).await?;
+                };
             } else {
                 println!("Not valid send command format")
             };
         } else if input.starts_with("denim") {
             if let Some(caps) = denim_regex.captures(&input) {
-                if !user.has_contact(&caps["alias"]).await {
-                    match user.get_service_id_from_server(&caps["alias"]).await {
-                        Ok(service_id) => {
-                            //Needs to be converted to retrieve keys deniably here
-                            user.add_deniable_contact_and_queue_message(
-                                &service_id,
-                                &caps["text"],
-                                &caps["alias"],
-                            )
-                            .await
-                            .expect("No bob?");
+                match user
+                    .send_deniable_message(&caps["text"], &caps["alias"])
+                    .await
+                {
+                    Err(SignalClientError::NoSession) => {
+                        match user.get_service_id_from_server(&caps["alias"]).await {
+                            Ok(service_id) => {
+                                user.add_deniable_contact_and_queue_message(
+                                    &service_id,
+                                    &caps["text"],
+                                    &caps["alias"],
+                                )
+                                .await
+                                .expect("No bob?");
 
-                            contact_names
-                                .insert(service_id.service_id_string(), caps["alias"].to_owned());
+                                contact_names.insert(
+                                    service_id.service_id_string(),
+                                    caps["alias"].to_owned(),
+                                );
+                            }
+                            Err(err) => {
+                                println!("{}", err);
+                                continue;
+                            }
                         }
-                        Err(err) => {
-                            println!("{}", err);
-                            continue;
-                        }
+                        Ok(())
                     }
-                } else {
-                    user.send_deniable_message(&caps["text"], &caps["alias"])
-                        .await?;
-                }
+                    x => x,
+                }?;
             } else {
                 println!("Not valid deniable send command format")
             };
