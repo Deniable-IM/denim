@@ -16,9 +16,13 @@ where
     T: AvailabilityListener,
 {
     let queue_name = format!("{}::{}", address.name(), address.device_id());
-    if let Some(listener) = listeners.lock().await.get(&queue_name) {
-        listener.lock().await.send_cached().await;
-    }
+    tokio::spawn({
+        async move {
+            if let Some(listener) = listeners.lock().await.get(&queue_name) {
+                listener.lock().await.send_cached().await;
+            }
+        }
+    });
 }
 
 pub async fn notify_persisted<T>(listeners: ListenerMap<T>, address: &ProtocolAddress)
@@ -26,21 +30,38 @@ where
     T: AvailabilityListener,
 {
     let queue_name = format!("{}::{}", address.name(), address.device_id());
-    if let Some(listener) = listeners.lock().await.get(&queue_name) {
-        listener.lock().await.send_persisted().await;
-    }
+    tokio::spawn({
+        async move {
+            if let Some(listener) = listeners.lock().await.get(&queue_name) {
+                listener.lock().await.send_persisted().await;
+            }
+        }
+    });
 }
 
 pub async fn add<T>(
     listeners: ListenerMap<T>,
     address: &ProtocolAddress,
     new_listener: Arc<Mutex<T>>,
-) {
+) where
+    T: Send + 'static,
+{
     let queue_name = format!("{}::{}", address.name(), address.device_id());
-    listeners.lock().await.insert(queue_name, new_listener);
+    tokio::spawn({
+        async move {
+            listeners.lock().await.insert(queue_name, new_listener);
+        }
+    });
 }
 
-pub async fn remove<T>(listeners: ListenerMap<T>, address: &ProtocolAddress) {
+pub async fn remove<T>(listeners: ListenerMap<T>, address: &ProtocolAddress)
+where
+    T: Send + 'static,
+{
     let queue_name: String = format!("{}::{}", address.name(), address.device_id());
-    listeners.lock().await.remove(&queue_name);
+    tokio::spawn({
+        async move {
+            listeners.lock().await.remove(&queue_name);
+        }
+    });
 }
