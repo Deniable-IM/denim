@@ -1,6 +1,7 @@
 use super::database::ClientDB;
 use crate::contact_manager::{Contact, ContactName};
 use axum::async_trait;
+use common::web_api::DenimChunk;
 use libsignal_core::{Aci, Pni, ProtocolAddress, ServiceId};
 use libsignal_protocol::{
     Direction, IdentityKey, IdentityKeyPair, IdentityKeyStore, InMemIdentityKeyStore,
@@ -273,7 +274,6 @@ impl ClientDB for InMemory {
     async fn get_deniable_payload_by_id(&self, _: u32) -> Result<Vec<u8>, Self::Error> {
         todo!()
     }
-
     async fn store_deniable_payload(&self, _: Option<u32>, _: Vec<u8>) -> Result<(), Self::Error> {
         todo!()
     }
@@ -281,12 +281,26 @@ impl ClientDB for InMemory {
     async fn remove_deniable_payload(&self, _: u32) -> Result<(), Self::Error> {
         todo!()
     }
+
+    async fn try_get_key_request_sent(&self, _: String) -> Result<Option<String>, Self::Error> {
+        todo!()
+    }
+
+    async fn store_key_request_sent(&self, _: String, _: String) -> Result<(), Self::Error> {
+        todo!()
+    }
+
+    async fn remove_key_request_sent(&self, _: String) -> Result<(), Self::Error> {
+        todo!()
+    }
+
     async fn get_messages_awaiting_encryption(
         &self,
         _: String,
     ) -> Result<Vec<String>, Self::Error> {
         todo!()
     }
+
     async fn store_message_awaiting_encryption(
         &self,
         _: String,
@@ -294,7 +308,21 @@ impl ClientDB for InMemory {
     ) -> Result<(), Self::Error> {
         todo!()
     }
+
     async fn remove_message_awaiting_encryption(&self, _: u32) -> Result<(), Self::Error> {
+        todo!()
+    }
+
+    async fn get_and_remove_incoming_deniable_chunks(
+        &mut self,
+    ) -> Result<Vec<DenimChunk>, Self::Error> {
+        todo!()
+    }
+
+    async fn store_incoming_deniable_chunks(
+        &mut self,
+        _: Vec<DenimChunk>,
+    ) -> Result<(), Self::Error> {
         todo!()
     }
 }

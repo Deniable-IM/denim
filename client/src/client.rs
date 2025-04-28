@@ -21,14 +21,16 @@ use common::{
     envelope::ProcessedEnvelope,
     signalservice::{envelope, Content, DataMessage, Envelope},
     web_api::{
-        AccountAttributes, DeniablePayload, DenimMessage, DenimMessages, PreKeyRequest,
+        AccountAttributes, DeniablePayload, DenimChunk, DenimMessage, DenimMessages, PreKeyRequest,
         RegistrationRequest, RegularPayload, SignalMessage,
     },
 };
 use core::str;
 use include_dir::{include_dir, Dir};
 use libsignal_core::{Aci, DeviceId, Pni, ProtocolAddress, ServiceId};
-use libsignal_protocol::{process_prekey_bundle, CiphertextMessage, IdentityKeyPair};
+use libsignal_protocol::{
+    process_prekey_bundle, CiphertextMessage, IdentityKeyPair, PreKeyBundle, SessionStore,
+};
 use prost::Message;
 use rand::{rngs::OsRng, Rng};
 use rusqlite::Connection;
@@ -458,7 +460,7 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
         self.server_api.has_message().await
     }
 
-    pub async fn receive_message(&mut self) -> Result<ProcessedEnvelope> {
+    pub async fn receive_message(&mut self) -> Result<Vec<ProcessedEnvelope>> {
         // I get Envelope from Server.
         let request = self
             .server_api
@@ -476,26 +478,142 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
                 return Err(ReceiveMessageError::EnvelopeDecodeError)?;
             }
         };
-        let processed = Envelope::decrypt(
-            envelope,
-            &mut self.storage.protocol_store.session_store,
-            &mut self.storage.protocol_store.identity_key_store,
-            &mut self.storage.protocol_store.pre_key_store,
-            &mut self.storage.protocol_store.signed_pre_key_store,
-            &mut self.storage.protocol_store.kyber_pre_key_store,
-            &mut OsRng,
-        )
-        .await?;
+        let mut processed = vec![
+            Envelope::decrypt(
+                envelope,
+                &mut self.storage.protocol_store.session_store,
+                &mut self.storage.protocol_store.identity_key_store,
+                &mut self.storage.protocol_store.pre_key_store,
+                &mut self.storage.protocol_store.signed_pre_key_store,
+                &mut self.storage.protocol_store.kyber_pre_key_store,
+                &mut OsRng,
+            )
+            .await?,
+        ];
 
         let _ = self.server_api.send_response(request, StatusCode::OK).await;
 
-        //PROCESS DENIABLE MESSAGE HERE
+        let chunks: Vec<DenimChunk> = denim_msg
+            .chunks
+            .into_iter()
+            .filter(|chunk| !chunk.is_dummy())
+            .collect();
+        if !chunks.is_empty() {
+            let deniable_payloads = self.handle_incoming_chunks(chunks).await?;
+            for deniable_payload in deniable_payloads {
+                match deniable_payload {
+                    DeniablePayload::Envelope(envelope) => {
+                        processed.push(
+                            Envelope::decrypt(
+                                envelope,
+                                &mut self.storage.protocol_store.deniable_store,
+                                &mut self.storage.protocol_store.identity_key_store,
+                                &mut self.storage.protocol_store.pre_key_store,
+                                &mut self.storage.protocol_store.signed_pre_key_store,
+                                &mut self.storage.protocol_store.kyber_pre_key_store,
+                                &mut OsRng,
+                            )
+                            .await?,
+                        );
+                    }
+                    DeniablePayload::KeyResponse(pre_key_response) => {
+                        let service_id =
+                            ServiceId::parse_from_service_id_string(pre_key_response.service_id())
+                                .expect("Should be service id");
+                        let bundles: Vec<PreKeyBundle> =
+                            Vec::<PreKeyBundle>::try_from(pre_key_response)
+                                .map_err(|err| SignalClientError::KeyError(err.to_string()))?;
+                        let device_ids = self
+                            .initialize_sessions_from_bundle(&service_id, &bundles, true)
+                            .await?;
+                        let alias = self
+                            .storage
+                            .device
+                            .lock()
+                            .await
+                            .try_get_key_request_sent(service_id.service_id_string())
+                            .await
+                            .map_err(DatabaseError::from)?
+                            .expect("Should contain key request");
+                        self.add_contact(&alias, &service_id, Some(device_ids))
+                            .await?;
+                        self.storage
+                            .device
+                            .lock()
+                            .await
+                            .remove_key_request_sent(service_id.service_id_string())
+                            .await
+                            .map_err(DatabaseError::from)?;
+                        let messages = self
+                            .storage
+                            .device
+                            .lock()
+                            .await
+                            .get_messages_awaiting_encryption(alias.to_owned())
+                            .await
+                            .map_err(DatabaseError::from)?;
+                        for message in messages {
+                            self.send_deniable_message(&message, &alias).await?;
+                        }
+                    }
+                    _ => todo!(),
+                }
+            }
+        }
 
         // The final message is stored within a DataMessage inside a Content.
         Ok(processed)
     }
 
-    pub async fn add_contact(&mut self, alias: &str, service_id: &ServiceId) -> Result<()> {
+    pub async fn handle_incoming_chunks(
+        &mut self,
+        new_chunks: Vec<DenimChunk>,
+    ) -> Result<Vec<DeniablePayload>> {
+        let mut chunks = if new_chunks.iter().any(|chunk| chunk.is_final()) {
+            self.storage
+                .device
+                .lock()
+                .await
+                .get_and_remove_incoming_deniable_chunks()
+                .await
+                .map_err(DatabaseError::from)?
+        } else {
+            Vec::new()
+        };
+
+        let mut deniable_payloads = Vec::new();
+        for chunk in new_chunks {
+            chunks.push(chunk.clone());
+            if chunk.is_final() {
+                chunks.sort();
+                let deniable_bytes: Vec<u8> = chunks.into_iter().flat_map(|c| c.chunk).collect();
+                let deniable_payload =
+                    deserialize(&deniable_bytes).expect("Should be deniable payload");
+                deniable_payloads.push(deniable_payload);
+
+                chunks = Vec::new();
+            }
+        }
+
+        if !chunks.is_empty() {
+            self.storage
+                .device
+                .lock()
+                .await
+                .store_incoming_deniable_chunks(chunks)
+                .await
+                .map_err(DatabaseError::from)?;
+        }
+
+        Ok(deniable_payloads)
+    }
+
+    pub async fn add_contact(
+        &mut self,
+        alias: &str,
+        service_id: &ServiceId,
+        device_ids: Option<Vec<DeviceId>>,
+    ) -> Result<()> {
         if self.contact_manager.get_contact(&service_id).is_ok() {
             return Ok(());
         }
@@ -526,8 +644,12 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
                 SignalClientError::DatabaseError(DatabaseError::Custom(Box::new(err)))
             })?;
 
-        let device_ids = self.get_new_device_ids(&service_id).await?;
-        self.update_contact(alias, device_ids).await
+        let new_device_ids = if let Some(new_device_ids) = device_ids {
+            new_device_ids
+        } else {
+            self.get_new_device_ids(&service_id).await?
+        };
+        self.update_contact(alias, new_device_ids).await
     }
 
     pub async fn add_deniable_contact_and_queue_message(
@@ -539,19 +661,38 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
         if self.contact_manager.get_contact(&service_id).is_ok() {
             return Ok(());
         }
-        let deniable_keyrequest_payload = DeniablePayload::KeyRequest(PreKeyRequest {
-            service_id: service_id.service_id_string(),
-        });
-        let deniable_payload_serialized =
-            serialize(&deniable_keyrequest_payload).expect("Should serialize payload");
 
-        self.storage
+        if self
+            .storage
             .device
             .lock()
             .await
-            .store_deniable_payload(None, deniable_payload_serialized)
+            .try_get_key_request_sent(service_id.service_id_string())
             .await
-            .map_err(DatabaseError::from)?;
+            .map_err(DatabaseError::from)?
+            .is_none()
+        {
+            let deniable_keyrequest_payload = DeniablePayload::KeyRequest(PreKeyRequest {
+                service_id: service_id.service_id_string(),
+            });
+            let deniable_payload_serialized =
+                serialize(&deniable_keyrequest_payload).expect("Should serialize payload");
+
+            self.storage
+                .device
+                .lock()
+                .await
+                .store_deniable_payload(None, deniable_payload_serialized)
+                .await
+                .map_err(DatabaseError::from)?;
+            self.storage
+                .device
+                .lock()
+                .await
+                .store_key_request_sent(service_id.service_id_string(), alias.to_owned())
+                .await
+                .map_err(DatabaseError::from)?;
+        }
 
         self.storage
             .device
@@ -561,16 +702,6 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
             .await
             .map_err(DatabaseError::from)?;
         Ok(())
-    }
-
-    pub async fn has_contact(&mut self, alias: &str) -> bool {
-        self.storage
-            .device
-            .lock()
-            .await
-            .get_service_id_by_nickname(alias)
-            .await
-            .is_ok()
     }
 
     #[allow(dead_code)]
@@ -628,24 +759,29 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
     async fn get_new_device_ids(&mut self, service_id: &ServiceId) -> Result<Vec<DeviceId>> {
         let bundles = self.server_api.fetch_pre_key_bundles(service_id).await?;
 
+        self.initialize_sessions_from_bundle(service_id, &bundles, false)
+            .await
+    }
+
+    async fn initialize_sessions_from_bundle(
+        &mut self,
+        service_id: &ServiceId,
+        bundles: &[PreKeyBundle],
+        deniable: bool,
+    ) -> Result<Vec<DeviceId>> {
         let mut device_ids = Vec::new();
         let time = SystemTime::now();
+        let session_store: &mut dyn SessionStore = if deniable {
+            &mut self.storage.protocol_store.deniable_store
+        } else {
+            &mut self.storage.protocol_store.session_store
+        };
         for ref bundle in bundles {
             let device_id = bundle.device_id().expect("Device id should be safe");
             device_ids.push(device_id);
             process_prekey_bundle(
                 &ProtocolAddress::new(service_id.service_id_string(), device_id),
-                &mut self.storage.protocol_store.session_store,
-                &mut self.storage.protocol_store.identity_key_store,
-                bundle,
-                time,
-                &mut OsRng,
-            )
-            .await
-            .map_err(ProcessPreKeyBundleError)?;
-            process_prekey_bundle(
-                &ProtocolAddress::new(service_id.service_id_string(), device_id),
-                &mut self.storage.protocol_store.deniable_store,
+                session_store,
                 &mut self.storage.protocol_store.identity_key_store,
                 bundle,
                 time,

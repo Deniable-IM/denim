@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use async_std::sync::Mutex;
 use axum::async_trait;
-use common::deniable::DeniableSendingBuffer;
+use common::{deniable::DeniableSendingBuffer, web_api::DenimChunk};
 use libsignal_core::{Aci, Pni, ProtocolAddress, ServiceId};
 use libsignal_protocol::{
     Direction, IdentityKey, IdentityKeyPair, IdentityKeyStore, KyberPreKeyId, KyberPreKeyRecord,
@@ -126,6 +126,16 @@ pub trait ClientDB {
         payload: Vec<u8>,
     ) -> Result<(), Self::Error>;
     async fn remove_deniable_payload(&self, payload_id: u32) -> Result<(), Self::Error>;
+    async fn try_get_key_request_sent(
+        &self,
+        service_id: String,
+    ) -> Result<Option<String>, Self::Error>;
+    async fn store_key_request_sent(
+        &self,
+        service_id: String,
+        alias: String,
+    ) -> Result<(), Self::Error>;
+    async fn remove_key_request_sent(&self, service_id: String) -> Result<(), Self::Error>;
     async fn get_messages_awaiting_encryption(
         &self,
         alias: String,
@@ -136,6 +146,13 @@ pub trait ClientDB {
         alias: String,
     ) -> Result<(), Self::Error>;
     async fn remove_message_awaiting_encryption(&self, message_id: u32) -> Result<(), Self::Error>;
+    async fn get_and_remove_incoming_deniable_chunks(
+        &mut self,
+    ) -> Result<Vec<DenimChunk>, Self::Error>;
+    async fn store_incoming_deniable_chunks(
+        &mut self,
+        chunks: Vec<DenimChunk>,
+    ) -> Result<(), Self::Error>;
 }
 
 pub struct DeviceIdentityKeyStore<T: ClientDB> {

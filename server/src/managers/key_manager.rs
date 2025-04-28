@@ -222,6 +222,7 @@ impl<T: SignalDatabase> KeyManager<T> {
         }
 
         Ok(PreKeyResponse::new(
+            target_service_id.service_id_string(),
             match target_service_id {
                 ServiceId::Aci(_) => target_account.aci_identity_key(),
                 ServiceId::Pni(_) => target_account.pni_identity_key(),

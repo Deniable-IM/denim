@@ -75,6 +75,7 @@ pub fn generate_payload(payload_type: DeniablePayloadType) -> DeniablePayload {
             service_id: "1".to_string(),
         }),
         DeniablePayloadType::KeyResponse => DeniablePayload::KeyResponse(PreKeyResponse::new(
+            "1".to_string(),
             new_identity_key(),
             new_pre_key_response_itmes(),
         )),

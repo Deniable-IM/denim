@@ -341,6 +341,16 @@ pub struct DenimChunk {
     pub flags: i32, // Bit flag 1 is dummy, 2 is final
 }
 
+impl DenimChunk {
+    pub fn is_dummy(&self) -> bool {
+        self.flags & 1 == 1
+    }
+
+    pub fn is_final(&self) -> bool {
+        self.flags & 2 == 2
+    }
+}
+
 impl Ord for DenimChunk {
     // Sort in descending order
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
@@ -498,17 +508,27 @@ pub struct PreKeyRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct PreKeyResponse {
+    service_id: String,
     #[serde_as(as = "Base64")]
     identity_key: Box<[u8]>,
     devices: Vec<PreKeyResponseItem>,
 }
 
 impl PreKeyResponse {
-    pub fn new(identity_key: IdentityKey, devices: Vec<PreKeyResponseItem>) -> Self {
+    pub fn new(
+        service_id: String,
+        identity_key: IdentityKey,
+        devices: Vec<PreKeyResponseItem>,
+    ) -> Self {
         Self {
+            service_id,
             identity_key: identity_key.serialize(),
             devices,
         }
+    }
+
+    pub fn service_id(&self) -> &str {
+        &self.service_id
     }
 
     pub fn identity_key(&self) -> &Box<[u8]> {
@@ -657,7 +677,7 @@ mod api_structs_tests {
             },
         ));
 
-        let res = PreKeyResponse::new(*identity_key.identity_key(), keys);
+        let res = PreKeyResponse::new("".to_owned(), *identity_key.identity_key(), keys);
         let _: Vec<PreKeyBundle> = res.try_into().unwrap();
     }
 }
