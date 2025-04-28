@@ -704,16 +704,6 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
         Ok(())
     }
 
-    pub async fn has_contact(&mut self, alias: &str) -> bool {
-        self.storage
-            .device
-            .lock()
-            .await
-            .get_service_id_by_nickname(alias)
-            .await
-            .is_ok()
-    }
-
     #[allow(dead_code)]
     pub async fn remove_contact(&mut self, alias: &str) -> Result<()> {
         let service_id = self

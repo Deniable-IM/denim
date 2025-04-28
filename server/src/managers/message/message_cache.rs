@@ -15,8 +15,6 @@ use libsignal_core::ProtocolAddress;
 use std::{any::Any, collections::HashMap, sync::Arc};
 use tokio::sync::Mutex;
 
-const PAGE_SIZE: u32 = 100;
-
 /// Use default decoder implementation
 impl Decoder<Envelope> for Envelope {}
 
