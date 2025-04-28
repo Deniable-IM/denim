@@ -5,7 +5,7 @@ use crate::{
         manager::Manager,
         message::message_cache::{self, MessageCache},
     },
-    storage::redis::{self},
+    storage::redis::{self, Decoder},
 };
 use anyhow::Result;
 use common::web_api::DenimChunk;
@@ -13,6 +13,9 @@ use deadpool_redis::Connection;
 use libsignal_core::ProtocolAddress;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::Mutex;
+
+/// Use default decoder implementation
+impl Decoder<DenimChunk> for DenimChunk {}
 
 type ListenerMap<T> = Arc<Mutex<HashMap<String, Arc<Mutex<T>>>>>;
 
@@ -127,7 +130,7 @@ where
             return Ok(Vec::new());
         }
 
-        Ok(redis::decode(values)?)
+        Ok(DenimChunk::decode(values)?)
     }
 
     pub async fn add_availability_listener(
@@ -227,12 +230,23 @@ pub mod chunk_cache_tests {
             .add_availability_listener(&address, websocket.clone())
             .await;
 
-        chunk_cache
-            .insert(&address, buffer, &mut chunk, &uuid)
-            .await
-            .unwrap();
+        let notify = websocket.lock().await.evoked_notify.clone();
+        let notifyed = notify.notified();
 
-        assert!(websocket.lock().await.evoked_handle_new_messages);
+        // Continue after branches complete
+        let (_, _) = tokio::join!(
+            chunk_cache.insert(&address, buffer, &mut chunk, &uuid),
+            notifyed
+        );
+
+        let result_evoked = *websocket
+            .lock()
+            .await
+            .evoked_handle_new_messages
+            .lock()
+            .await;
+
+        assert!(result_evoked)
     }
 
     #[tokio::test]
@@ -260,7 +274,7 @@ pub mod chunk_cache_tests {
 
         teardown(&chunk_cache.test_key, connection).await;
 
-        let result = redis::decode::<DenimChunk>(values).unwrap();
+        let result = DenimChunk::decode(values).unwrap();
         assert_eq!(chunk, result[0]);
     }
 

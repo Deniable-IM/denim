@@ -385,8 +385,12 @@ mod message_persister_tests {
             db.delete_account(&account.aci().into()).await.unwrap();
         }
 
-        let handle_persisted_messages_evoked =
-            websocket.lock().await.evoked_handle_messages_persisted;
+        let handle_persisted_messages_evoked = *websocket
+            .lock()
+            .await
+            .evoked_handle_messages_persisted
+            .lock()
+            .await;
 
         (
             handle_persisted_messages_evoked,

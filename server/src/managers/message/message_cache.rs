@@ -5,7 +5,7 @@ use crate::{
         add, notify_cached, notify_persisted, remove, AvailabilityListener, ListenerMap,
     },
     managers::manager::Manager,
-    storage::redis::{self},
+    storage::redis::{self, Decoder},
 };
 use ::redis::Value;
 use anyhow::Result;
@@ -16,6 +16,9 @@ use std::{any::Any, collections::HashMap, sync::Arc};
 use tokio::sync::Mutex;
 
 const PAGE_SIZE: u32 = 100;
+
+/// Use default decoder implementation
+impl Decoder<Envelope> for Envelope {}
 
 #[derive(Debug)]
 pub struct MessageCache<T>
@@ -155,7 +158,7 @@ where
             return Ok(Vec::new());
         }
 
-        Ok(redis::decode(values)?)
+        Ok(Envelope::decode(values)?)
     }
 
     pub async fn get_messages_to_persist(
@@ -172,7 +175,7 @@ where
             .query_async::<Vec<Value>>(&mut connection)
             .await?;
 
-        let valid_envelopes = redis::decode::<Envelope>(values).unwrap();
+        let valid_envelopes = Envelope::decode(values).unwrap();
 
         Ok(valid_envelopes)
     }
@@ -327,12 +330,23 @@ pub mod message_cache_tests {
             .add_message_availability_listener(&address, websocket.clone())
             .await;
 
-        message_cache
-            .insert(&address, &mut envelope, &uuid)
-            .await
-            .unwrap();
+        let notify = websocket.lock().await.evoked_notify.clone();
+        let notifyed = notify.notified();
 
-        assert!(websocket.lock().await.evoked_handle_new_messages);
+        // Continue after branches complete
+        let (_, _) = tokio::join!(
+            message_cache.insert(&address, &mut envelope, &uuid),
+            notifyed
+        );
+
+        let result_evoked = *websocket
+            .lock()
+            .await
+            .evoked_handle_new_messages
+            .lock()
+            .await;
+
+        assert!(result_evoked)
     }
 
     #[tokio::test]
@@ -360,7 +374,7 @@ pub mod message_cache_tests {
 
         teardown(&message_cache.test_key, connection).await;
 
-        let result = redis::decode::<Envelope>(values).unwrap()[0].clone();
+        let result = Envelope::decode(values).unwrap()[0].clone();
         assert_eq!(envelope, result);
     }
 
@@ -398,7 +412,7 @@ pub mod message_cache_tests {
 
         teardown(&message_cache.test_key, connection).await;
 
-        let result = redis::decode::<Envelope>(values).unwrap()[0].clone();
+        let result = Envelope::decode(values).unwrap()[0].clone();
         assert_eq!(envelope1, result);
         assert_eq!(message_id, message_id_2);
     }
@@ -447,8 +461,8 @@ pub mod message_cache_tests {
 
         teardown(&message_cache.test_key, connection).await;
 
-        let result1 = redis::decode::<Envelope>(values1).unwrap()[0].clone();
-        let result2 = redis::decode::<Envelope>(values2).unwrap()[0].clone();
+        let result1 = Envelope::decode(values1).unwrap()[0].clone();
+        let result2 = Envelope::decode(values2).unwrap()[0].clone();
         assert_ne!(message_id, message_id_2);
         assert_ne!(result1, result2);
     }
@@ -509,7 +523,6 @@ pub mod message_cache_tests {
     }
 
     #[tokio::test]
-
     async fn test_has_messages() {
         let message_cache: MessageCache<MockWebSocketConnection> = MessageCache::connect();
         let connection = message_cache.pool.get().await.unwrap();
