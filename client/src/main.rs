@@ -1,6 +1,5 @@
 use client::Client;
 use dotenv::dotenv;
-use errors::SignalClientError;
 use regex::Regex;
 use server::SignalServer;
 use std::{
@@ -173,35 +172,30 @@ async fn main() -> Result<(), Box<dyn Error>> {
             };
         } else if input.starts_with("denim") {
             if let Some(caps) = denim_regex.captures(&input) {
-                match user
+                if user
                     .send_deniable_message(&caps["text"], &caps["alias"])
                     .await
+                    .is_err()
                 {
-                    Err(SignalClientError::NoSession) => {
-                        match user.get_service_id_from_server(&caps["alias"]).await {
-                            Ok(service_id) => {
-                                user.add_deniable_contact_and_queue_message(
-                                    &service_id,
-                                    &caps["text"],
-                                    &caps["alias"],
-                                )
-                                .await
-                                .expect("No bob?");
+                    match user.get_service_id_from_server(&caps["alias"]).await {
+                        Ok(service_id) => {
+                            user.add_deniable_contact_and_queue_message(
+                                &service_id,
+                                &caps["text"],
+                                &caps["alias"],
+                            )
+                            .await
+                            .expect("No bob?");
 
-                                contact_names.insert(
-                                    service_id.service_id_string(),
-                                    caps["alias"].to_owned(),
-                                );
-                            }
-                            Err(err) => {
-                                println!("{}", err);
-                                continue;
-                            }
+                            contact_names
+                                .insert(service_id.service_id_string(), caps["alias"].to_owned());
                         }
-                        Ok(())
+                        Err(err) => {
+                            println!("{}", err);
+                            continue;
+                        }
                     }
-                    x => x,
-                }?;
+                };
             } else {
                 println!("Not valid deniable send command format")
             };

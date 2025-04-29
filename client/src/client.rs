@@ -660,10 +660,6 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
         text: &str,
         alias: &str,
     ) -> Result<()> {
-        if self.contact_manager.get_contact(&service_id).is_ok() {
-            return Ok(());
-        }
-
         if self
             .storage
             .device
