@@ -158,7 +158,9 @@ mod test {
 
     #[async_trait(?Send)]
     impl DeniableSendingBuffer for MockDeniableSendingBuffer {
-        async fn get_outgoing_message(&mut self) -> Result<(u32, Vec<u8>, i32), SignalProtocolError> {
+        async fn get_outgoing_message(
+            &mut self,
+        ) -> Result<(u32, Vec<u8>, i32), SignalProtocolError> {
             let message: [u8; 32] = rand::random();
             Ok((1, message.to_vec(), 0))
         }

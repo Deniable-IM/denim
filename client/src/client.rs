@@ -449,7 +449,7 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
                 .device
                 .lock()
                 .await
-                .store_deniable_payload(None, 0,deniable_payload_serialized)
+                .store_deniable_payload(None, 0, deniable_payload_serialized)
                 .await
                 .map_err(DatabaseError::from)?;
         }
@@ -592,8 +592,7 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
                 deniable_payloads.push(deniable_payload);
 
                 chunks = Vec::new();
-            }
-            else {
+            } else {
                 chunks.push(chunk.clone());
             }
         }

@@ -119,7 +119,10 @@ pub trait ClientDB {
     async fn set_pni(&mut self, new_pni: Pni) -> Result<(), Self::Error>;
     async fn get_pni(&self) -> Result<Pni, Self::Error>;
     async fn get_deniable_payload(&self) -> Result<(u32, Vec<u8>, i32), Self::Error>;
-    async fn get_deniable_payload_by_id(&self, payload_id: u32) -> Result<(Vec<u8>, i32), Self::Error>;
+    async fn get_deniable_payload_by_id(
+        &self,
+        payload_id: u32,
+    ) -> Result<(Vec<u8>, i32), Self::Error>;
     async fn store_deniable_payload(
         &self,
         payload_id: Option<u32>,

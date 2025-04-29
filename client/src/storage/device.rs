@@ -984,7 +984,10 @@ impl ClientDB for Device {
         Ok(row)
     }
 
-    async fn get_deniable_payload_by_id(&self, payload_id: u32) -> Result<(Vec<u8>, i32), Self::Error> {
+    async fn get_deniable_payload_by_id(
+        &self,
+        payload_id: u32,
+    ) -> Result<(Vec<u8>, i32), Self::Error> {
         let mut stmt = self
             .conn
             .prepare(
