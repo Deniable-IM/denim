@@ -449,7 +449,7 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
                 .device
                 .lock()
                 .await
-                .store_deniable_payload(None, deniable_payload_serialized)
+                .store_deniable_payload(None, 0, deniable_payload_serialized)
                 .await
                 .map_err(DatabaseError::from)?;
         }
@@ -583,15 +583,17 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
 
         let mut deniable_payloads = Vec::new();
         for chunk in new_chunks {
-            chunks.push(chunk.clone());
             if chunk.is_final() {
                 chunks.sort();
+                chunks.push(chunk.clone());
                 let deniable_bytes: Vec<u8> = chunks.into_iter().flat_map(|c| c.chunk).collect();
                 let deniable_payload =
                     deserialize(&deniable_bytes).expect("Should be deniable payload");
                 deniable_payloads.push(deniable_payload);
 
                 chunks = Vec::new();
+            } else {
+                chunks.push(chunk.clone());
             }
         }
 
@@ -682,7 +684,7 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
                 .device
                 .lock()
                 .await
-                .store_deniable_payload(None, deniable_payload_serialized)
+                .store_deniable_payload(None, 0, deniable_payload_serialized)
                 .await
                 .map_err(DatabaseError::from)?;
             self.storage

@@ -343,11 +343,11 @@ pub struct DenimChunk {
 
 impl DenimChunk {
     pub fn is_dummy(&self) -> bool {
-        self.flags & 1 == 1
+        self.flags == 1
     }
 
     pub fn is_final(&self) -> bool {
-        self.flags & 2 == 2
+        self.flags == 2
     }
 }
 

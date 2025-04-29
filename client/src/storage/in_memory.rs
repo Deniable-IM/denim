@@ -267,14 +267,19 @@ impl ClientDB for InMemory {
         Ok(self.pni)
     }
 
-    async fn get_deniable_payload(&self) -> Result<(u32, Vec<u8>), Self::Error> {
+    async fn get_deniable_payload(&self) -> Result<(u32, Vec<u8>, i32), Self::Error> {
         todo!()
     }
 
-    async fn get_deniable_payload_by_id(&self, _: u32) -> Result<Vec<u8>, Self::Error> {
+    async fn get_deniable_payload_by_id(&self, _: u32) -> Result<(Vec<u8>, i32), Self::Error> {
         todo!()
     }
-    async fn store_deniable_payload(&self, _: Option<u32>, _: Vec<u8>) -> Result<(), Self::Error> {
+    async fn store_deniable_payload(
+        &self,
+        _: Option<u32>,
+        _: i32,
+        _: Vec<u8>,
+    ) -> Result<(), Self::Error> {
         todo!()
     }
 
