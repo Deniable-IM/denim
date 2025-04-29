@@ -6,7 +6,8 @@ CREATE TABLE DeniableDeviceSessionStore (
 
 CREATE TABLE DeniablePayload (
   id              INTEGER PRIMARY KEY,
-  content         BLOB NOT NULL
+  content         BLOB NOT NULL,
+  chunk_count     INTEGER NOT NULL
 );
 
 CREATE TABLE DeniableKeyRequestsSent (

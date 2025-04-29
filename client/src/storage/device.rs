@@ -965,32 +965,32 @@ impl ClientDB for Device {
         )?)
     }
 
-    async fn get_deniable_payload(&self) -> Result<(u32, Vec<u8>), Self::Error> {
+    async fn get_deniable_payload(&self) -> Result<(u32, Vec<u8>, i32), Self::Error> {
         let mut stmt = self
             .conn
             .prepare(
                 r#"
             SELECT
-                id, content
+                id, content, chunk_count
             FROM
                 DeniablePayload
             "#,
             )
             .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
 
-        let row: (u32, Vec<u8>) = stmt
-            .query_row([], |row| Ok((row.get(0)?, row.get(1)?)))
+        let row: (u32, Vec<u8>, i32) = stmt
+            .query_row([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
             .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
         Ok(row)
     }
 
-    async fn get_deniable_payload_by_id(&self, payload_id: u32) -> Result<Vec<u8>, Self::Error> {
+    async fn get_deniable_payload_by_id(&self, payload_id: u32) -> Result<(Vec<u8>, i32), Self::Error> {
         let mut stmt = self
             .conn
             .prepare(
                 r#"
             SELECT
-                content
+                content, chunk_count
             FROM
                 DeniablePayload
             WHERE
@@ -999,8 +999,8 @@ impl ClientDB for Device {
             )
             .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
 
-        let row: Vec<u8> = stmt
-            .query_row([payload_id], |row| Ok(row.get(0)?))
+        let row: (Vec<u8>, i32) = stmt
+            .query_row([payload_id], |row| Ok((row.get(0)?, row.get(1)?)))
             .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
         Ok(row)
     }
@@ -1008,6 +1008,7 @@ impl ClientDB for Device {
     async fn store_deniable_payload(
         &self,
         payload_id: Option<u32>,
+        chunk_count: i32,
         payload: Vec<u8>,
     ) -> Result<(), Self::Error> {
         if let Some(id) = payload_id {
@@ -1016,21 +1017,21 @@ impl ClientDB for Device {
                 .prepare(
                     r#"
                 UPDATE DeniablePayload
-                SET content = ?1
-                WHERE id = ?2
+                SET content = ?1, chunk_count = ?2
+                WHERE id = ?3
                 "#,
                 )
                 .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
 
-            stmt.execute(params![payload, id])
+            stmt.execute(params![payload, chunk_count, id])
                 .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
         } else {
             let mut stmt = self
                 .conn
                 .prepare(
                     r#"
-                INSERT INTO DeniablePayload (content)
-                VALUES (?1)
+                INSERT INTO DeniablePayload (content, chunk_count)
+                VALUES (?1, 0)
                 "#,
                 )
                 .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;

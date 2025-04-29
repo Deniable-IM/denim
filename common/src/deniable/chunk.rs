@@ -60,13 +60,14 @@ impl Chunker {
                 } else {
                     new_chunk = DenimChunk {
                         chunk: current_outgoing_message.1[..chunk_size].to_vec(),
-                        flags: ChunkType::Data(0).into(),
+                        flags: ChunkType::Data(current_outgoing_message.2).into(),
                     };
                     let remaining_current_outgoing_message =
                         current_outgoing_message.1[chunk_size..].to_vec();
                     buffer
                         .set_outgoing_message(
                             Some(current_outgoing_message.0),
+                            current_outgoing_message.2 - 1,
                             remaining_current_outgoing_message,
                         )
                         .await
@@ -157,13 +158,14 @@ mod test {
 
     #[async_trait(?Send)]
     impl DeniableSendingBuffer for MockDeniableSendingBuffer {
-        async fn get_outgoing_message(&mut self) -> Result<(u32, Vec<u8>), SignalProtocolError> {
+        async fn get_outgoing_message(&mut self) -> Result<(u32, Vec<u8>, i32), SignalProtocolError> {
             let message: [u8; 32] = rand::random();
-            Ok((1, message.to_vec()))
+            Ok((1, message.to_vec(), 0))
         }
         async fn set_outgoing_message(
             &mut self,
             _: Option<u32>,
+            _: i32,
             _: Vec<u8>,
         ) -> Result<(), SignalProtocolError> {
             Ok(())
