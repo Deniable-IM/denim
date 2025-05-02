@@ -277,8 +277,9 @@ pub async fn get_values(
     mut connection: Connection,
     queue_key: String,
     queue_lock_key: String,
+    queue_metadata_key: String,
     stop_index: i32,
-) -> Result<Vec<Value>> {
+) -> Result<(Vec<Value>, Vec<String>)> {
     let values_sort = format!("({}", stop_index);
 
     let locked = cmd("GET")
@@ -288,7 +289,7 @@ pub async fn get_values(
 
     // if there is a queue lock key on, due to persist of message.
     if locked.is_some() {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), Vec::new()));
     }
 
     let values = cmd("ZRANGE")
@@ -303,7 +304,23 @@ pub async fn get_values(
         .query_async::<Vec<Value>>(&mut connection)
         .await?;
 
-    Ok(values)
+    let field_ids = values
+        .clone()
+        .into_iter()
+        .map(|v| get_field_metadata(&v).map(|v| v.to_string()))
+        .collect::<Result<Vec<String>>>()?;
+
+    let mut field_guids = Vec::new();
+    for field_id in &field_ids {
+        let field_guid: Option<String> = cmd("HGET")
+            .arg(format! {"{}:rev", &queue_metadata_key})
+            .arg(&field_id)
+            .query_async(&mut connection)
+            .await?;
+        field_guids.push(field_guid.unwrap_or_default());
+    }
+
+    Ok((values, field_guids))
 }
 
 /// Take part of redis value out and remove
