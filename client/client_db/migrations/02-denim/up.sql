@@ -24,5 +24,5 @@ CREATE TABLE DeniableMessageAwaitingEncryption (
 CREATE TABLE IncomingDeniableChunk (
   id              INTEGER PRIMARY KEY,
   chunk           BLOB NOT NULL,
-  flags           TEXT NOT NULL
+  flags           INTEGER NOT NULL
 );
