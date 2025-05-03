@@ -1,9 +1,11 @@
 use super::{buffer::Buffer, chunk_cache::ChunkCache, payload_cache::PayloadCache};
 use crate::{availability_listener::AvailabilityListener, managers::manager::Manager};
 use anyhow::{Ok, Result};
-use common::deniable::chunk::ChunkType;
-use common::web_api::{DeniablePayload, DenimChunk};
+use common::deniable::chunk::{ChunkType, Chunker};
+use common::signalservice::Envelope;
+use common::web_api::{DeniablePayload, DenimChunk, DenimMessage};
 use libsignal_core::ProtocolAddress;
+use prost::Message as PMessage;
 use uuid::Uuid;
 
 #[derive(Debug)]
@@ -13,6 +15,7 @@ where
 {
     chunk_cache: ChunkCache<T>,
     payload_cache: PayloadCache<T>,
+    chunker: Chunker,
 }
 
 impl<T> Clone for DenIMManager<T>
@@ -23,6 +26,7 @@ where
         Self {
             chunk_cache: self.chunk_cache.clone(),
             payload_cache: self.payload_cache.clone(),
+            chunker: self.chunker.clone(),
         }
     }
 }
@@ -44,7 +48,32 @@ where
         Self {
             chunk_cache,
             payload_cache,
+            chunker: Chunker::default(),
         }
+    }
+
+    pub async fn create_denim_message(
+        &self,
+        receiver: &ProtocolAddress,
+        regular_payload: Envelope,
+    ) -> Result<DenimMessage> {
+        let free_space = self.get_free_space_in_bytes(regular_payload.encoded_len() as f32);
+        let chunks = self.dequeue_payload_data(receiver, free_space).await?;
+        let q = self.chunker.q;
+
+        let denim_message = DenimMessage {
+            regular_payload: common::web_api::RegularPayload::Envelope(regular_payload),
+            chunks,
+            counter: None, //TODO find out what this is used for, is only used for server -> client
+            q: Some(q),
+            ballast: Vec::new(),
+        };
+
+        Ok(denim_message)
+    }
+
+    pub fn get_free_space_in_bytes(&self, regular_payload_size: f32) -> usize {
+        self.chunker.get_free_space_in_bytes(regular_payload_size)
     }
 
     pub async fn get_incoming_chunks(&self, sender: &ProtocolAddress) -> Result<Vec<DenimChunk>> {
@@ -216,6 +245,7 @@ pub mod denim_manager_tests {
         DenIMManager::<MockWebSocketConnection> {
             chunk_cache: ChunkCache::connect(),
             payload_cache: PayloadCache::connect(),
+            chunker: Chunker::default(),
         }
     }
 

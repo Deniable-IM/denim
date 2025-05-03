@@ -1,6 +1,7 @@
 use super::{constants, DeniableSendingBuffer};
 use crate::web_api::{DenimChunk, PayloadData};
 use bincode::serialize;
+use std::usize;
 
 pub enum ChunkType {
     Data(i32),
@@ -29,9 +30,23 @@ impl From<ChunkType> for i32 {
     }
 }
 
-pub struct Chunker;
+#[derive(Debug, Clone)]
+pub struct Chunker {
+    pub q: f32,
+}
+
+impl Default for Chunker {
+    fn default() -> Self {
+        Self { q: 0.6 }
+    }
+}
 
 impl Chunker {
+    pub fn get_free_space_in_bytes(&self, regular_payload_size: f32) -> usize {
+        let total_free_space = (regular_payload_size * self.q).ceil() as usize;
+        total_free_space - constants::EMPTY_VEC_SIZE
+    }
+
     pub async fn create_chunks<T: DeniableSendingBuffer>(
         q: f32,
         regular_payload_size: f32,
