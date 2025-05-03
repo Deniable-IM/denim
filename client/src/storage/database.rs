@@ -118,11 +118,15 @@ pub trait ClientDB {
     async fn get_aci(&self) -> Result<Aci, Self::Error>;
     async fn set_pni(&mut self, new_pni: Pni) -> Result<(), Self::Error>;
     async fn get_pni(&self) -> Result<Pni, Self::Error>;
-    async fn get_deniable_payload(&self) -> Result<(u32, Vec<u8>), Self::Error>;
-    async fn get_deniable_payload_by_id(&self, payload_id: u32) -> Result<Vec<u8>, Self::Error>;
+    async fn get_deniable_payload(&self) -> Result<(u32, Vec<u8>, i32), Self::Error>;
+    async fn get_deniable_payload_by_id(
+        &self,
+        payload_id: u32,
+    ) -> Result<(Vec<u8>, i32), Self::Error>;
     async fn store_deniable_payload(
         &self,
         payload_id: Option<u32>,
+        chunk_count: i32,
         payload: Vec<u8>,
     ) -> Result<(), Self::Error>;
     async fn remove_deniable_payload(&self, payload_id: u32) -> Result<(), Self::Error>;
@@ -470,7 +474,7 @@ impl<T: ClientDB> SessionStore for DeniableStore<T> {
 
 #[async_trait(?Send)]
 impl<T: ClientDB> DeniableSendingBuffer for DeniableStore<T> {
-    async fn get_outgoing_message(&mut self) -> Result<(u32, Vec<u8>), SignalProtocolError> {
+    async fn get_outgoing_message(&mut self) -> Result<(u32, Vec<u8>, i32), SignalProtocolError> {
         self.db
             .lock()
             .await
@@ -482,12 +486,13 @@ impl<T: ClientDB> DeniableSendingBuffer for DeniableStore<T> {
     async fn set_outgoing_message(
         &mut self,
         message_id: Option<u32>,
+        chunk_count: i32,
         outgoing_message: Vec<u8>,
     ) -> Result<(), SignalProtocolError> {
         self.db
             .lock()
             .await
-            .store_deniable_payload(message_id, outgoing_message)
+            .store_deniable_payload(message_id, chunk_count, outgoing_message)
             .await
             .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))
     }
