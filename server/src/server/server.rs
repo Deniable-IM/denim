@@ -205,7 +205,7 @@ pub async fn handle_receiving_chunks<
 
     let _ = state
         .denim_manager
-        .set_outgoing_chunks(&receiver, chunks.clone())
+        .enqueue_outgoing_chunk_buffer(&receiver, chunks.clone())
         .await?;
 
     let has_final_chunk = chunks
@@ -218,7 +218,7 @@ pub async fn handle_receiving_chunks<
 
     let deniable_payloads = state
         .denim_manager
-        .dequeue_outgoing_chunk_buffer(&receiver)
+        .flush_outgoing_chunk_buffer(&receiver)
         .await?;
 
     // Hold deniable payloads before storing in cache
@@ -282,7 +282,7 @@ pub async fn handle_receiving_chunks<
             let address = account.get_protocol_address(ServiceIdKind::Aci, device.device_id());
             let _ = state
                 .denim_manager
-                .set_deniable_payloads(&address, payloads.clone())
+                .enqueue_outgoing_payload_buffer(&address, payloads.clone())
                 .await?;
         }
     }
