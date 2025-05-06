@@ -238,9 +238,7 @@ pub async fn handle_receiving_chunks<
                         receiver_device_id.to_string(),
                     )
                     .await
-                    .unwrap_or_else(|e| {
-                        panic!("Failed to create pre key response: {e}");
-                    });
+                    .expect("Failed to create pre key response: {e}");
 
                 let sender_account = authenticated_device.account();
                 let payload = DeniablePayload::KeyResponse(pre_key_response);

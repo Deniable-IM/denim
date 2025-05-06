@@ -129,9 +129,7 @@ impl<W: WSStream<Message, Error> + Debug + Send + 'static, DB: SignalDatabase>
             .denim_manager
             .create_denim_message(&receiver, message.clone())
             .await
-            .unwrap_or_else(|e| {
-                panic!("Failed to create denim message: {e}");
-            });
+            .expect("Failed to create denim message: {e}");
 
         let msg = create_request(
             id,
