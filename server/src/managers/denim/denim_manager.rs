@@ -988,7 +988,7 @@ pub mod denim_manager_tests {
         // Teardown cache
         teardown(&denim_manager.chunk_cache.test_key, connection).await;
 
-        let result_taken_values = vec![
+        let mut result_taken_values = vec![
             result_taken_values1,
             result_taken_values2,
             result_taken_values3,
@@ -998,8 +998,11 @@ pub mod denim_manager_tests {
         .flat_map(|data| data.chunk)
         .collect::<Vec<u8>>();
 
+        let result_exta_dummy_data = result_taken_values.split_off(outgoing_payloads[0].len());
+
         assert!(result_outgoing_payloads_buffer.is_empty());
         assert_eq!(vec![result_taken_values], outgoing_payloads);
+        assert_eq!(result_exta_dummy_data, vec![0; 4]);
     }
 
     #[tokio::test]
@@ -1032,13 +1035,15 @@ pub mod denim_manager_tests {
             .await
             .unwrap();
 
-        let result_taken_values = denim_manager
+        let mut result_taken_values = denim_manager
             .dequeue_outgoing_payload_buffer(&receiver_address, 122)
             .await
             .unwrap()
             .into_iter()
             .map(|data| data.chunk)
             .collect::<Vec<Vec<u8>>>();
+
+        let result_taken_extra_dymmy_data = result_taken_values.pop().unwrap();
 
         let result_outgoing_payloads_buffer = denim_manager
             .get_deniable_payloads_raw(&receiver_address)
@@ -1050,6 +1055,7 @@ pub mod denim_manager_tests {
 
         assert!(result_outgoing_payloads_buffer.is_empty());
         assert_eq!(result_taken_values, outgoing_payloads);
+        assert_eq!(result_taken_extra_dymmy_data, vec![0; 8]);
     }
 
     #[tokio::test]
@@ -1082,13 +1088,15 @@ pub mod denim_manager_tests {
             .await
             .unwrap();
 
-        let result_taken_values = denim_manager
+        let mut result_taken_values = denim_manager
             .dequeue_outgoing_payload_buffer(&receiver_address, 212)
             .await
             .unwrap()
             .into_iter()
             .map(|data| data.chunk)
             .collect::<Vec<Vec<u8>>>();
+
+        let result_taken_extra_dymmy_data = result_taken_values.pop().unwrap();
 
         let result_outgoing_payloads_buffer = denim_manager
             .get_deniable_payloads_raw(&receiver_address)
@@ -1098,8 +1106,11 @@ pub mod denim_manager_tests {
         // Teardown cache
         teardown(&denim_manager.chunk_cache.test_key, connection).await;
 
+        let result_dymmy_len = 212 - (result_taken_values[0].len() + result_taken_values[1].len());
+
         assert!(result_outgoing_payloads_buffer.is_empty());
         assert_eq!(result_taken_values, outgoing_payloads);
+        assert_eq!(result_taken_extra_dymmy_data, vec![0; result_dymmy_len]);
     }
 
     #[tokio::test]
