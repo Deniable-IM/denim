@@ -11,19 +11,16 @@ use axum::{
     http::{StatusCode, Uri},
 };
 use bincode::serialize;
+use common::signalservice::{
+    web_socket_message, Envelope, WebSocketMessage, WebSocketRequestMessage,
+    WebSocketResponseMessage,
+};
 use common::websocket::connection_state::ConnectionState;
 use common::websocket::net_helper::{
     create_request, create_response, current_millis, generate_req_id, unpack_messages,
     PathExtractor,
 };
 use common::websocket::wsstream::WSStream;
-use common::{
-    signalservice::{
-        web_socket_message, Envelope, WebSocketMessage, WebSocketRequestMessage,
-        WebSocketResponseMessage,
-    },
-    web_api::DenimMessage,
-};
 use futures_util::{stream::SplitSink, SinkExt};
 use libsignal_core::{ProtocolAddress, ServiceId, ServiceIdKind};
 use prost::Message as PMessage;
@@ -77,6 +74,7 @@ impl<W: WSStream<Message, Error> + Debug + Send + 'static, DB: SignalDatabase>
     pub async fn send_message(&mut self, message: Envelope) -> Result<(), String> {
         let msg = self
             .create_message(message.clone())
+            .await
             .map_err(|_| "Time went backwards".to_string())?;
         match self.send(Message::Binary(msg.encode_to_vec())).await {
             Ok(_) => {
@@ -116,20 +114,23 @@ impl<W: WSStream<Message, Error> + Debug + Send + 'static, DB: SignalDatabase>
         true
     }
 
-    fn create_message(
+    async fn create_message(
         &mut self,
         mut message: Envelope,
     ) -> Result<WebSocketMessage, SystemTimeError> {
         let id = generate_req_id();
+        let receiver = self.protocol_address();
+
         message.ephemeral = None; // was false
         message.story = Some(false); // TODO: needs to handled in handle_request instead
-        let denim_msg = DenimMessage {
-            regular_payload: common::web_api::RegularPayload::Envelope(message.clone()),
-            chunks: Vec::new(), //ADD DENIABLE CHUNKS HERE
-            counter: None, //TODO find out what this is used for, is only used for server -> client
-            q: Some(1.0),  // TODO add real q value
-            ballast: Vec::new(),
-        };
+
+        let denim_message = self
+            .state
+            .denim_manager
+            .create_denim_message(&receiver, message.clone())
+            .await
+            .expect("Failed to create denim message: {e}");
+
         let msg = create_request(
             id,
             "PUT",
@@ -138,7 +139,7 @@ impl<W: WSStream<Message, Error> + Debug + Send + 'static, DB: SignalDatabase>
                 "X-Signal-Key: false".to_string(),
                 format!("X-Signal-Timestamp: {}", current_millis()?),
             ],
-            Some(serialize(&denim_msg).unwrap()),
+            Some(serialize(&denim_message).unwrap()),
         );
         self.pending_requests
             .insert(id, message.server_guid.expect("This is always some"));

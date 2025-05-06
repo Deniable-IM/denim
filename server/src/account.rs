@@ -2,6 +2,7 @@ use anyhow::{bail, Result};
 use common::web_api::{AccountCapabilityMode, DeviceCapabilityType};
 use libsignal_core::{Aci, DeviceId, Pni, ProtocolAddress, ServiceIdKind};
 use libsignal_protocol::IdentityKey;
+use std::hash::{Hash, Hasher};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -12,6 +13,12 @@ pub struct Account {
     pni_identity_key: IdentityKey,
     devices: Vec<Device>,
     phone_number: String,
+}
+
+impl Hash for Account {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.aci.hash(state);
+    }
 }
 
 impl Account {
@@ -108,6 +115,20 @@ impl Account {
             .max()
             .expect("Will always have some device")
             + 1
+    }
+
+    pub fn get_protocol_address(
+        &self,
+        kind: ServiceIdKind,
+        device_id: DeviceId,
+    ) -> ProtocolAddress {
+        ProtocolAddress::new(
+            match kind {
+                ServiceIdKind::Aci => self.aci.service_id_string(),
+                ServiceIdKind::Pni => self.pni.service_id_string(),
+            },
+            device_id,
+        )
     }
 }
 

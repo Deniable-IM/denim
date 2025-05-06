@@ -1,6 +1,7 @@
 use super::{
     account_manager::AccountManager,
     client_presence_manager::ClientPresenceManager,
+    denim::denim_manager::DenIMManager,
     key_manager::KeyManager,
     manager::Manager,
     message::{message_cache::MessageCache, messages_manager::MessagesManager},
@@ -26,6 +27,7 @@ where
     pub message_manager: MessagesManager<T, WebSocketConnection<U, T>>,
     pub client_presence_manager: ClientPresenceManager<WebSocketConnection<U, T>>,
     pub message_cache: MessageCache<WebSocketConnection<U, T>>,
+    pub denim_manager: DenIMManager<WebSocketConnection<U, T>>,
 }
 
 impl<T, U> Manager for SignalServerState<T, U>
@@ -52,6 +54,7 @@ where
             message_manager: self.message_manager.clone(),
             client_presence_manager: self.client_presence_manager.clone(),
             message_cache: self.message_cache.clone(),
+            denim_manager: self.denim_manager.clone(),
         }
     }
 }
@@ -74,7 +77,8 @@ where
             key_manager: KeyManager::new(db.clone()),
             message_manager: MessagesManager::new(db, cache.clone()),
             client_presence_manager: ClientPresenceManager::connect(),
-            message_cache: cache,
+            message_cache: cache.clone(),
+            denim_manager: DenIMManager::new(cache.clone().into(), cache.clone().into()),
         }
     }
 }
@@ -99,7 +103,8 @@ impl SignalServerState<MockDB, MockSocket> {
             key_manager: KeyManager::new(db.clone()),
             message_manager: MessagesManager::new(db, cache.clone()),
             client_presence_manager: ClientPresenceManager::connect(),
-            message_cache: cache,
+            message_cache: cache.clone(),
+            denim_manager: DenIMManager::new(cache.clone().into(), cache.clone().into()),
         }
     }
 }

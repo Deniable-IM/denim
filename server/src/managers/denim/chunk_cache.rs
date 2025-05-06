@@ -27,6 +27,26 @@ pub struct ChunkCache<T> {
     pub test_key: String,
 }
 
+impl<T> Clone for ChunkCache<T>
+where
+    T: AvailabilityListener,
+{
+    fn clone(&self) -> Self {
+        #[cfg(not(test))]
+        return Self {
+            pool: self.pool.clone(),
+            listeners: self.listeners.clone(),
+        };
+
+        #[cfg(test)]
+        Self {
+            pool: self.pool.clone(),
+            listeners: self.listeners.clone(),
+            test_key: self.test_key.clone(),
+        }
+    }
+}
+
 impl<T> Manager for ChunkCache<T>
 where
     T: AvailabilityListener,
@@ -124,13 +144,71 @@ where
         let connection = self.pool.get().await?;
         let queue_key = self.get_queue_key(address, buffer);
         let queue_lock_key = self.get_persist_in_progress_key(address, buffer);
+        let queue_metadata_key: String = self.get_queue_metadata_key(address, Buffer::Receiver);
 
-        let values = redis::get_values(connection, queue_key, queue_lock_key, -1).await?;
+        let (values, _) = redis::get_values(
+            connection,
+            queue_key,
+            queue_lock_key,
+            queue_metadata_key,
+            -1,
+        )
+        .await?;
         if values.is_empty() {
             return Ok(Vec::new());
         }
 
         Ok(DenimChunk::decode(values)?)
+    }
+
+    pub async fn dequeue_incoming_chunks(
+        &self,
+        sender: &ProtocolAddress,
+    ) -> Result<Vec<DenimChunk>> {
+        let connection = self.pool.get().await?;
+        let queue_key = self.get_queue_key(sender, Buffer::Sender);
+        let queue_lock_key = self.get_persist_in_progress_key(sender, Buffer::Sender);
+        let queue_metadata_key: String = self.get_queue_metadata_key(sender, Buffer::Sender);
+
+        let (values, chunk_guids) = redis::get_values(
+            connection,
+            queue_key.clone(),
+            queue_lock_key,
+            queue_metadata_key,
+            -1,
+        )
+        .await?;
+
+        if values.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        Ok(self.remove(sender, Buffer::Sender, chunk_guids).await?)
+    }
+
+    pub async fn dequeue_outgoing_chunks(
+        &self,
+        receiver: &ProtocolAddress,
+    ) -> Result<Vec<DenimChunk>> {
+        let connection = self.pool.get().await?;
+        let queue_key = self.get_queue_key(receiver, Buffer::Receiver);
+        let queue_lock_key = self.get_persist_in_progress_key(receiver, Buffer::Receiver);
+        let queue_metadata_key: String = self.get_queue_metadata_key(receiver, Buffer::Receiver);
+
+        let (values, chunk_guids) = redis::get_values(
+            connection,
+            queue_key.clone(),
+            queue_lock_key,
+            queue_metadata_key,
+            -1,
+        )
+        .await?;
+
+        if values.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        Ok(self.remove(receiver, Buffer::Receiver, chunk_guids).await?)
     }
 
     pub async fn add_availability_listener(

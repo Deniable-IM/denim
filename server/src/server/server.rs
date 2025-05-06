@@ -21,7 +21,7 @@ use crate::{
         pre_key_signature_validator::PreKeySignatureValidator,
     },
 };
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use axum::{
     debug_handler,
     extract::{
@@ -42,11 +42,13 @@ use axum::{
 use axum_extra::{headers, TypedHeader};
 use axum_server::tls_rustls::RustlsConfig;
 use base64::prelude::{Engine as _, BASE64_URL_SAFE, BASE64_URL_SAFE_NO_PAD};
+use common::deniable::chunk::ChunkType;
 use common::web_api::{
     authorization::BasicAuthorizationHeader, DenimMessages, DeviceCapabilityType,
     DevicePreKeyBundle, LinkDeviceRequest, PreKeyCount, PreKeyResponse, RegistrationRequest,
     RegistrationResponse, RegularPayload, SetKeyRequest, SignalMessage,
 };
+use common::web_api::{DeniablePayload, DenimChunk};
 use common::websocket::wsstream::WSStream;
 use futures_util::StreamExt;
 use headers::authorization::Basic;
@@ -97,14 +99,17 @@ pub async fn handle_put_messages<T: SignalDatabase, U: WSStream<Message, axum::E
         Vec::new()
     };
 
-    let regular_messages: Vec<SignalMessage> = payload
-        .messages
-        .into_iter()
-        .filter_map(|msg| match msg.regular_payload {
-            RegularPayload::SignalMessage(signal_msg) => Some(signal_msg),
-            _ => None,
-        })
-        .collect();
+    let (regular_messages, chunks): (Vec<SignalMessage>, Vec<DenimChunk>) =
+        payload.messages.into_iter().fold(
+            (Vec::new(), Vec::new()),
+            |(mut regulars, mut chunks), mut msg| {
+                if let RegularPayload::SignalMessage(signal_mesage) = msg.regular_payload {
+                    regulars.push(signal_mesage);
+                }
+                chunks.append(&mut msg.chunks);
+                (regulars, chunks)
+            },
+        );
 
     let message_device_ids: Vec<u32> = regular_messages
         .iter()
@@ -152,10 +157,140 @@ pub async fn handle_put_messages<T: SignalDatabase, U: WSStream<Message, axum::E
             })?;
     }
 
-    //EXTRACT DENIABLE CHUNKS HERE AND PROCESS
+    handle_receiving_chunks(
+        state,
+        authenticated_device,
+        &destination,
+        chunks,
+        payload.timestamp,
+    )
+    .await
+    .map_err(|e| ApiError {
+        status_code: StatusCode::INTERNAL_SERVER_ERROR,
+        body: format!("internal error: {e}"),
+    })?;
 
     let needs_sync = !is_sync_message && authenticated_device.account().devices().len() > 1;
     Ok(SendMessageResponse { needs_sync })
+}
+
+pub async fn handle_receiving_chunks<
+    T: SignalDatabase,
+    U: WSStream<Message, axum::Error> + Debug,
+>(
+    state: &SignalServerState<T, U>,
+    authenticated_device: &AuthenticatedDevice,
+    destination: &Account,
+    chunks: Vec<DenimChunk>,
+    payload_timestamp: u64,
+) -> Result<()> {
+    let chunks = chunks
+        .into_iter()
+        .filter(|c| c.flags != i32::from(ChunkType::Dummy))
+        .collect::<Vec<DenimChunk>>();
+
+    if chunks.is_empty() {
+        return Ok(());
+    };
+
+    let receiver_device_id = destination
+        .devices()
+        .first()
+        .ok_or_else(|| anyhow!("Error"))?
+        .device_id();
+
+    let sender = authenticated_device.get_protocol_address(ServiceIdKind::Aci);
+
+    let _ = state
+        .denim_manager
+        .enqueue_incoming_chunk_buffer(&sender, chunks.clone())
+        .await?;
+
+    let has_final_chunk = chunks
+        .into_iter()
+        .any(|c| c.flags == i32::from(ChunkType::Final));
+
+    if !has_final_chunk {
+        return Ok(());
+    }
+
+    let deniable_payloads = state
+        .denim_manager
+        .flush_incoming_chunk_buffer(&sender)
+        .await?;
+
+    // Hold deniable payloads before storing in cache
+    let mut account_payloads_map = HashMap::new();
+
+    for deniable_payload in deniable_payloads {
+        match deniable_payload {
+            DeniablePayload::KeyRequest(pre_key_request) => {
+                let receiver_service_id =
+                    ServiceId::parse_from_service_id_string(&pre_key_request.service_id)
+                        .ok_or_else(|| anyhow!("Failed to get service id"))?;
+
+                let pre_key_response = state
+                    .key_manager
+                    .handle_get_keys_id_device_id(
+                        &state.db,
+                        &authenticated_device,
+                        receiver_service_id,
+                        receiver_device_id.to_string(),
+                    )
+                    .await
+                    .expect("Failed to create pre key response: {e}");
+
+                let sender_account = authenticated_device.account();
+                let payload = DeniablePayload::KeyResponse(pre_key_response);
+                account_payloads_map
+                    .entry(sender_account.clone())
+                    .or_insert_with(Vec::new)
+                    .push(payload);
+            }
+            DeniablePayload::SignalMessage(signal_message) => {
+                let receiver_service_id = ServiceId::parse_from_service_id_string(
+                    &signal_message
+                        .clone()
+                        .destination_service_id
+                        .expect("Failed to get destination ACI"),
+                )
+                .expect("Failed to parse string to ServiceId");
+                let sender_account = authenticated_device.account();
+                let sender_device_id = u32::from(authenticated_device.device().device_id()) as u8;
+
+                let envelope = signal_message.to_envelope(
+                    &receiver_service_id,
+                    sender_account,
+                    sender_device_id,
+                    payload_timestamp,
+                    false,
+                );
+
+                let receiver_account = state
+                    .account_manager
+                    .get_account(&receiver_service_id)
+                    .await?;
+                let payload = DeniablePayload::Envelope(envelope);
+                account_payloads_map
+                    .entry(receiver_account)
+                    .or_insert_with(Vec::new)
+                    .push(payload);
+            }
+            payload => eprintln!("Payload not supported: {:?}.", payload),
+        }
+    }
+
+    for (account, payloads) in account_payloads_map {
+        for device in account.devices() {
+            let address = account.get_protocol_address(ServiceIdKind::Aci, device.device_id());
+            let _ = state
+                .denim_manager
+                .enqueue_outgoing_payload_buffer(&address, payloads.clone())
+                .await?;
+        }
+    }
+
+    Ok(())
 }
 
 pub async fn handle_keepalive<T: SignalDatabase, U: WSStream<Message, axum::Error> + Debug>(

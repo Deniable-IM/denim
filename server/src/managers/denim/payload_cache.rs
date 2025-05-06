@@ -8,7 +8,7 @@ use crate::{
     storage::redis::{self, Decoder},
 };
 use anyhow::{Ok, Result};
-use common::web_api::DeniablePayload;
+use common::{deniable::chunk::ChunkType, web_api::DeniablePayload};
 use deadpool_redis::Connection;
 use libsignal_core::ProtocolAddress;
 use std::{collections::HashMap, sync::Arc};
@@ -25,6 +25,26 @@ pub struct PayloadCache<T> {
     pub(crate) listeners: ListenerMap<T>,
     #[cfg(test)]
     pub test_key: String,
+}
+
+impl<T> Clone for PayloadCache<T>
+where
+    T: AvailabilityListener,
+{
+    fn clone(&self) -> Self {
+        #[cfg(not(test))]
+        return Self {
+            pool: self.pool.clone(),
+            listeners: self.listeners.clone(),
+        };
+
+        #[cfg(test)]
+        Self {
+            pool: self.pool.clone(),
+            listeners: self.listeners.clone(),
+            test_key: self.test_key.clone(),
+        }
+    }
 }
 
 impl<T> Manager for PayloadCache<T>
@@ -124,8 +144,16 @@ where
         let connection = self.pool.get().await?;
         let queue_key = self.get_queue_key(address, buffer);
         let queue_lock_key = self.get_persist_in_progress_key(address, buffer);
+        let queue_metadata_key: String = self.get_queue_metadata_key(address, buffer);
 
-        let values = redis::get_values(connection, queue_key, queue_lock_key, -1).await?;
+        let (values, _) = redis::get_values(
+            connection,
+            queue_key,
+            queue_lock_key,
+            queue_metadata_key,
+            -1,
+        )
+        .await?;
         if values.is_empty() {
             return Ok(Vec::new());
         }
@@ -141,8 +169,16 @@ where
         let connection = self.pool.get().await?;
         let queue_key = self.get_queue_key(address, buffer);
         let queue_lock_key = self.get_persist_in_progress_key(address, buffer);
+        let queue_metadata_key: String = self.get_queue_metadata_key(address, buffer);
 
-        let values = redis::get_values(connection, queue_key, queue_lock_key, -1).await?;
+        let (values, _) = redis::get_values(
+            connection,
+            queue_key,
+            queue_lock_key,
+            queue_metadata_key,
+            -1,
+        )
+        .await?;
         if values.is_empty() {
             return Ok(Vec::new());
         }
@@ -175,6 +211,7 @@ where
             )
             .await?;
             if taken == 0 {
+                result.push((vec![0; take], ChunkType::Dummy.into()));
                 break;
             } else {
                 take -= taken;

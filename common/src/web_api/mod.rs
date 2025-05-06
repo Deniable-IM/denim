@@ -640,6 +640,7 @@ pub struct DenimMessages {
 pub struct SignalMessage {
     pub r#type: i32,
     pub destination_device_id: u32,
+    pub destination_service_id: Option<String>,
     pub destination_registration_id: u32,
     pub content: String,
 }

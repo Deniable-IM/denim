@@ -211,7 +211,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         } else if input.starts_with("stop") || input.starts_with("quit") {
             break;
         }
-        println!("")
+
+        if debug_print {
+            println!("")
+        }
     }
 
     user.disconnect().await;

@@ -150,8 +150,16 @@ where
         let connection = self.pool.get().await?;
         let queue_key = self.get_message_queue_key(address);
         let queue_lock_key = self.get_persist_in_progress_key(address);
+        let queue_metadata_key: String = self.get_message_queue_metadata_key(address);
 
-        let values = redis::get_values(connection, queue_key, queue_lock_key, -1).await?;
+        let (values, _) = redis::get_values(
+            connection,
+            queue_key,
+            queue_lock_key,
+            queue_metadata_key,
+            -1,
+        )
+        .await?;
         if values.is_empty() {
             return Ok(Vec::new());
         }
