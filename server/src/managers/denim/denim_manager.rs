@@ -52,6 +52,40 @@ where
         }
     }
 
+    /// Store chunks in incoming chunk buffer
+    pub async fn enqueue_incoming_chunk_buffer(
+        &self,
+        sender: &ProtocolAddress,
+        chunks: Vec<DenimChunk>,
+    ) -> Result<u64> {
+        let mut count = 0;
+        for chunk in chunks {
+            count += self
+                .chunk_cache
+                .insert(sender, Buffer::Sender, &chunk, &Uuid::new_v4().to_string())
+                .await?
+        }
+        Ok(count)
+    }
+
+    /// Dequeue all payloads from incoming chunk buffer
+    pub async fn flush_incoming_chunk_buffer(
+        &self,
+        sender: &ProtocolAddress,
+    ) -> Result<Vec<DeniablePayload>> {
+        let chunks = self.chunk_cache.dequeue_incoming_chunks(sender).await?;
+        let (payloads, pending_chunks) = self.create_deniable_payloads(chunks)?;
+
+        if !pending_chunks.is_empty() {
+            eprintln!("Error: payloads created but there are still chunks left");
+            let _ = self
+                .enqueue_incoming_chunk_buffer(sender, pending_chunks)
+                .await?;
+        }
+
+        Ok(payloads)
+    }
+
     /// Store chunks in outgoing chunk buffer
     pub async fn enqueue_outgoing_chunk_buffer(
         &self,
@@ -192,22 +226,6 @@ where
     }
 
     #[cfg(test)]
-    pub async fn set_incoming_chunks(
-        &self,
-        sender: &ProtocolAddress,
-        chunks: Vec<DenimChunk>,
-    ) -> Result<u64> {
-        let mut count = 0;
-        for chunk in chunks {
-            count += self
-                .chunk_cache
-                .insert(sender, Buffer::Sender, &chunk, &Uuid::new_v4().to_string())
-                .await?
-        }
-        Ok(count)
-    }
-
-    #[cfg(test)]
     pub async fn get_incoming_chunks(&self, sender: &ProtocolAddress) -> Result<Vec<DenimChunk>> {
         self.chunk_cache
             .get_all_chunks(sender, Buffer::Sender)
@@ -314,6 +332,7 @@ pub mod denim_manager_tests {
                 destination_device_id: 1,
                 destination_registration_id: 1,
                 content: text.to_string(),
+                ..Default::default()
             }),
             _ => DeniablePayload::SignalMessage(SignalMessage::default()),
         }
@@ -331,7 +350,7 @@ pub mod denim_manager_tests {
         let outgoing_chunks = create_chunks(2, 0);
 
         let _ = denim_manager
-            .set_incoming_chunks(&sender_address, incoming_chunks)
+            .enqueue_incoming_chunk_buffer(&sender_address, incoming_chunks)
             .await;
 
         let _ = denim_manager
@@ -367,11 +386,11 @@ pub mod denim_manager_tests {
         let incoming_chunks2 = create_chunks(2, 0);
 
         let _ = denim_manager
-            .set_incoming_chunks(&sender_address1, incoming_chunks1)
+            .enqueue_incoming_chunk_buffer(&sender_address1, incoming_chunks1)
             .await;
 
         let _ = denim_manager
-            .set_incoming_chunks(&sender_address2, incoming_chunks2)
+            .enqueue_incoming_chunk_buffer(&sender_address2, incoming_chunks2)
             .await;
 
         let result_incoming_chunks1 = denim_manager
@@ -449,7 +468,7 @@ pub mod denim_manager_tests {
         let (_, sender_address) = new_account_and_address();
 
         let _ = denim_manager
-            .set_incoming_chunks(&sender_address, incoming_chunks.clone())
+            .enqueue_incoming_chunk_buffer(&sender_address, incoming_chunks.clone())
             .await;
 
         let cached_incoming_chunks = denim_manager
@@ -466,7 +485,6 @@ pub mod denim_manager_tests {
 
         assert_eq!(incoming_chunks.len(), 2);
         assert_eq!(incoming_chunks[0].flags, 2);
-        assert_eq!(incoming_chunks[1].flags, 1);
         assert_eq!(payload, result_payloads[0]);
         assert!(result_pending.is_empty());
     }
@@ -498,19 +516,19 @@ pub mod denim_manager_tests {
         let (_, sender_address) = new_account_and_address();
 
         let _ = denim_manager
-            .set_incoming_chunks(&sender_address, incoming_chunks1)
+            .enqueue_incoming_chunk_buffer(&sender_address, incoming_chunks1)
             .await;
 
         let _ = denim_manager
-            .set_incoming_chunks(&sender_address, dummy_chunks.clone())
+            .enqueue_incoming_chunk_buffer(&sender_address, dummy_chunks.clone())
             .await;
 
         let _ = denim_manager
-            .set_incoming_chunks(&sender_address, incoming_chunks2)
+            .enqueue_incoming_chunk_buffer(&sender_address, incoming_chunks2)
             .await;
 
         let _ = denim_manager
-            .set_incoming_chunks(&sender_address, dummy_chunks)
+            .enqueue_incoming_chunk_buffer(&sender_address, dummy_chunks)
             .await;
 
         let cached_incoming_chunks = denim_manager
@@ -564,11 +582,11 @@ pub mod denim_manager_tests {
         let (_, sender_address) = new_account_and_address();
 
         let _ = denim_manager
-            .set_incoming_chunks(&sender_address, incoming_chunks1)
+            .enqueue_incoming_chunk_buffer(&sender_address, incoming_chunks1)
             .await;
 
         let _ = denim_manager
-            .set_incoming_chunks(&sender_address, incoming_chunks2)
+            .enqueue_incoming_chunk_buffer(&sender_address, incoming_chunks2)
             .await;
 
         let cached_incoming_chunks = denim_manager
@@ -611,7 +629,7 @@ pub mod denim_manager_tests {
             );
 
         let _ = denim_manager
-            .set_incoming_chunks(&sender_address, incoming_chunks)
+            .enqueue_incoming_chunk_buffer(&sender_address, incoming_chunks)
             .await;
 
         // Exhaust pending data to create and store chunks
@@ -624,7 +642,7 @@ pub mod denim_manager_tests {
                 );
             pending_data = new_pending_data;
             let _ = denim_manager
-                .set_incoming_chunks(&sender_address, incoming_chunks)
+                .enqueue_incoming_chunk_buffer(&sender_address, incoming_chunks)
                 .await;
         }
 
@@ -704,7 +722,7 @@ pub mod denim_manager_tests {
         buffer.append(&mut final_incoming_chunks);
 
         let _ = denim_manager
-            .set_incoming_chunks(&sender_address, buffer)
+            .enqueue_incoming_chunk_buffer(&sender_address, buffer)
             .await;
 
         let cached_incoming_chunks = denim_manager
@@ -764,11 +782,11 @@ pub mod denim_manager_tests {
         payload_chunks2.append(&mut final_payload_chunks2);
 
         let _ = denim_manager
-            .set_incoming_chunks(&sender_address, payload_chunks1.clone())
+            .enqueue_incoming_chunk_buffer(&sender_address, payload_chunks1.clone())
             .await;
 
         let _ = denim_manager
-            .set_incoming_chunks(&sender_address, payload_chunks2.clone())
+            .enqueue_incoming_chunk_buffer(&sender_address, payload_chunks2.clone())
             .await;
 
         let cached_incoming_chunks = denim_manager
@@ -958,7 +976,7 @@ pub mod denim_manager_tests {
             .unwrap();
 
         let result_taken_values3 = denim_manager
-            .dequeue_outgoing_payload_buffer(&receiver_address, 6)
+            .dequeue_outgoing_payload_buffer(&receiver_address, 11)
             .await
             .unwrap();
 
@@ -1015,7 +1033,7 @@ pub mod denim_manager_tests {
             .unwrap();
 
         let result_taken_values = denim_manager
-            .dequeue_outgoing_payload_buffer(&receiver_address, 112)
+            .dequeue_outgoing_payload_buffer(&receiver_address, 122)
             .await
             .unwrap()
             .into_iter()
@@ -1219,7 +1237,7 @@ pub mod denim_manager_tests {
             .unwrap();
 
         let result_taken_values4 = denim_manager
-            .dequeue_outgoing_payload_buffer(&receiver_address, 1)
+            .dequeue_outgoing_payload_buffer(&receiver_address, 6)
             .await
             .unwrap();
 
@@ -1311,7 +1329,7 @@ pub mod denim_manager_tests {
             .unwrap();
 
         let result_taken_values7 = denim_manager
-            .dequeue_outgoing_payload_buffer(&receiver_address, 2)
+            .dequeue_outgoing_payload_buffer(&receiver_address, 12)
             .await
             .unwrap();
 

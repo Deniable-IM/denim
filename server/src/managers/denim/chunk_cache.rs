@@ -161,6 +161,31 @@ where
         Ok(DenimChunk::decode(values)?)
     }
 
+    pub async fn dequeue_incoming_chunks(
+        &self,
+        sender: &ProtocolAddress,
+    ) -> Result<Vec<DenimChunk>> {
+        let connection = self.pool.get().await?;
+        let queue_key = self.get_queue_key(sender, Buffer::Sender);
+        let queue_lock_key = self.get_persist_in_progress_key(sender, Buffer::Sender);
+        let queue_metadata_key: String = self.get_queue_metadata_key(sender, Buffer::Sender);
+
+        let (values, chunk_guids) = redis::get_values(
+            connection,
+            queue_key.clone(),
+            queue_lock_key,
+            queue_metadata_key,
+            -1,
+        )
+        .await?;
+
+        if values.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        Ok(self.remove(sender, Buffer::Sender, chunk_guids).await?)
+    }
+
     pub async fn dequeue_outgoing_chunks(
         &self,
         receiver: &ProtocolAddress,

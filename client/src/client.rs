@@ -352,6 +352,7 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
                 destination_device_id: id.into(),
                 destination_registration_id: msg.0,
                 content: BASE64_STANDARD.encode(msg.1.serialize()),
+                ..Default::default()
             });
             let regular_payload_size = serialize(&regular_payload)
                 .expect("Should serialize payload")
@@ -439,6 +440,7 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
                     }
                 },
                 destination_device_id: id.into(),
+                destination_service_id: Some(service_id.service_id_string()),
                 destination_registration_id: msg.0,
                 content: BASE64_STANDARD.encode(msg.1.serialize()),
             });

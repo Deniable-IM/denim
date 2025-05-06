@@ -160,7 +160,6 @@ pub async fn handle_put_messages<T: SignalDatabase, U: WSStream<Message, axum::E
     handle_receiving_chunks(
         state,
         authenticated_device,
-        destination_identifier,
         &destination,
         chunks,
         payload.timestamp,
@@ -181,7 +180,6 @@ pub async fn handle_receiving_chunks<
 >(
     state: &SignalServerState<T, U>,
     authenticated_device: &AuthenticatedDevice,
-    destination_identifier: &ServiceId,
     destination: &Account,
     chunks: Vec<DenimChunk>,
     payload_timestamp: u64,
@@ -201,11 +199,11 @@ pub async fn handle_receiving_chunks<
         .ok_or_else(|| anyhow!("Error"))?
         .device_id();
 
-    let receiver = destination.get_protocol_address(ServiceIdKind::Aci, receiver_device_id);
+    let sender = authenticated_device.get_protocol_address(ServiceIdKind::Aci);
 
     let _ = state
         .denim_manager
-        .enqueue_outgoing_chunk_buffer(&receiver, chunks.clone())
+        .enqueue_incoming_chunk_buffer(&sender, chunks.clone())
         .await?;
 
     let has_final_chunk = chunks
@@ -218,7 +216,7 @@ pub async fn handle_receiving_chunks<
 
     let deniable_payloads = state
         .denim_manager
-        .flush_outgoing_chunk_buffer(&receiver)
+        .flush_incoming_chunk_buffer(&sender)
         .await?;
 
     // Hold deniable payloads before storing in cache
@@ -252,28 +250,35 @@ pub async fn handle_receiving_chunks<
                     .push(payload);
             }
             DeniablePayload::SignalMessage(signal_message) => {
+                let receiver_service_id = ServiceId::parse_from_service_id_string(
+                    &signal_message
+                        .clone()
+                        .destination_service_id
+                        .expect("Failed to get destination ACI"),
+                )
+                .expect("Failed to parse string to ServiceId");
+                let sender_account = authenticated_device.account();
+                let sender_device_id = u32::from(authenticated_device.device().device_id()) as u8;
+
                 let envelope = signal_message.to_envelope(
-                    destination_identifier,
-                    authenticated_device.account(),
-                    u32::from(authenticated_device.device().device_id()) as u8,
+                    &receiver_service_id,
+                    sender_account,
+                    sender_device_id,
                     payload_timestamp,
                     false,
                 );
 
-                let receiver_account = destination.clone();
+                let receiver_account = state
+                    .account_manager
+                    .get_account(&receiver_service_id)
+                    .await?;
                 let payload = DeniablePayload::Envelope(envelope);
                 account_payloads_map
                     .entry(receiver_account)
                     .or_insert_with(Vec::new)
                     .push(payload);
             }
-            payload => {
-                let receiver_account = destination.clone();
-                account_payloads_map
-                    .entry(receiver_account)
-                    .or_insert_with(Vec::new)
-                    .push(payload)
-            }
+            payload => eprintln!("Payload not supported: {:?}.", payload),
         }
     }
 
