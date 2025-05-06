@@ -8,7 +8,7 @@ use crate::{
     storage::redis::{self, Decoder},
 };
 use anyhow::{Ok, Result};
-use common::web_api::DeniablePayload;
+use common::{deniable::chunk::ChunkType, web_api::DeniablePayload};
 use deadpool_redis::Connection;
 use libsignal_core::ProtocolAddress;
 use std::{collections::HashMap, sync::Arc};
@@ -211,6 +211,7 @@ where
             )
             .await?;
             if taken == 0 {
+                result.push((vec![0; take], ChunkType::Dummy.into()));
                 break;
             } else {
                 take -= taken;
