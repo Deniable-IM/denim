@@ -104,7 +104,7 @@ pub async fn signal_ws_connect(
     url: &str,
     username: &str,
     password: &str,
-) -> Result<TLSWebSocket, String> {
+) -> Result<(TLSWebSocket, f32), String> {
     let url = format!("{}/v1/websocket", url.replace("http", "ws"));
     let mut req = url
         .into_client_request()
@@ -165,8 +165,16 @@ pub async fn signal_ws_connect(
     };
 
     let res = client_async_tls_with_config(req, stream, Some(config), connector).await;
-    let (ws, _) = res.map_err(|_| "Failed to connect to server".to_string())?;
-    Ok(ws)
+    let (ws, response) = res.map_err(|_| "Failed to connect to server".to_string())?;
+    let q_value = response
+        .headers()
+        .get("q-value")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    Ok((ws, q_value))
 }
 
 type MessageType = WebSocketMessage;

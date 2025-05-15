@@ -53,7 +53,7 @@ pub trait SignalServerAPI {
         password: &str,
         url: &str,
         tls_path: &Option<String>,
-    ) -> Result<(), SignalClientError>;
+    ) -> Result<Option<f32>, SignalClientError>;
 
     // Disconnect websocket to the backend
     async fn disconnect(&mut self);
@@ -143,11 +143,11 @@ impl SignalServerAPI for SignalServer {
         password: &str,
         url: &str,
         tls_path: &Option<String>,
-    ) -> Result<(), SignalClientError> {
+    ) -> Result<Option<f32>, SignalClientError> {
         if self.socket_manager.is_active().await {
-            return Ok(());
+            return Ok(None);
         }
-        let ws = signal_ws_connect(tls_path, url, username, password)
+        let (ws, q_value) = signal_ws_connect(tls_path, url, username, password)
             .await
             .map_err(SignalClientError::WebSocketError)?;
         let ws = SignalStream::new(ws);
@@ -155,7 +155,7 @@ impl SignalServerAPI for SignalServer {
             .set_stream(ws)
             .await
             .map_err(SignalClientError::WebSocketError)?;
-        Ok(())
+        Ok(Some(q_value))
     }
     async fn disconnect(&mut self) {
         self.socket_manager.close().await;

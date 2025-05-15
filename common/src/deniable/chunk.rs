@@ -32,28 +32,36 @@ impl From<ChunkType> for i32 {
 
 #[derive(Debug, Clone)]
 pub struct Chunker {
-    pub q: f32,
+    pub q_value: f32,
 }
 
 impl Default for Chunker {
     fn default() -> Self {
-        Self { q: 0.6 }
+        Self { q_value: 0.6 }
     }
 }
 
 impl Chunker {
+    pub fn new(q_value: f32) -> Self {
+        Self { q_value }
+    }
+
+    pub fn set_q_value(&mut self, q_value: f32) {
+        self.q_value = q_value;
+    }
+
     pub fn get_free_space_in_bytes(&self, regular_payload_size: f32) -> usize {
-        let total_free_space = (regular_payload_size * self.q).ceil() as usize;
+        let total_free_space = (regular_payload_size * self.q_value).ceil() as usize;
         total_free_space - constants::EMPTY_VEC_SIZE
     }
 
     pub async fn create_chunks<T: DeniableSendingBuffer>(
-        q: f32,
+        &self,
         regular_payload_size: f32,
         buffer: &mut T,
     ) -> Result<(Vec<DenimChunk>, usize), String> {
         let mut outgoing_chunks: Vec<DenimChunk> = vec![];
-        let total_free_space = (regular_payload_size * q).ceil() as usize;
+        let total_free_space = (regular_payload_size * self.q_value).ceil() as usize;
 
         let mut free_space = total_free_space - constants::EMPTY_VEC_SIZE;
         while free_space >= constants::EMPTY_DENIMCHUNK_SIZE {
@@ -104,7 +112,7 @@ impl Chunker {
     }
 
     pub fn create_ordered_chunks(
-        q: f32,
+        &self,
         regular_payload_size: f32,
         payload: PayloadData,
     ) -> (Vec<DenimChunk>, usize, PayloadData) {
@@ -113,7 +121,7 @@ impl Chunker {
         let mut payload_data = payload.chunk.clone();
         let mut payload_data_count = payload.flags;
 
-        let total_free_space = (regular_payload_size * q).ceil() as usize;
+        let total_free_space = (regular_payload_size * self.q_value).ceil() as usize;
         let mut free_space = total_free_space - constants::EMPTY_VEC_SIZE;
 
         while free_space >= constants::EMPTY_DENIMCHUNK_SIZE {
@@ -249,7 +257,9 @@ mod test {
     async fn create_chunks_no_chunks() {
         let expected_deniable_payload_length = (30.0_f32 * 0.6_f32).ceil() as usize;
 
-        let chunks = Chunker::create_chunks(0.6, 30.0, &mut MockDeniableSendingBuffer {})
+        let chunker = Chunker::new(0.6);
+        let chunks = chunker
+            .create_chunks(30.0, &mut MockDeniableSendingBuffer {})
             .await
             .unwrap();
 
@@ -265,7 +275,9 @@ mod test {
     async fn create_chunks_dummy_chunk() {
         let expected_deniable_payload_length = (40.0_f32 * 0.6_f32).ceil() as usize;
 
-        let chunks = Chunker::create_chunks(0.6, 40.0, &mut MockDeniableSendingBuffer {})
+        let chunker = Chunker::new(0.6);
+        let chunks = chunker
+            .create_chunks(40.0, &mut MockDeniableSendingBuffer {})
             .await
             .unwrap();
 
