@@ -3,13 +3,12 @@ use dotenv::dotenv;
 use regex::Regex;
 use server::SignalServer;
 use std::{
-    collections::HashMap,
     env::{self, var},
     error::Error,
     fs,
     path::{Path, PathBuf},
 };
-use storage::{database::ClientDB, device::Device};
+use storage::device::Device;
 
 mod client;
 mod contact_manager;
@@ -42,7 +41,8 @@ async fn make_client(
 ) -> Client<Device, SignalServer> {
     let db_path = client_db_path() + "/" + name + ".db";
     let client = if Path::exists(Path::new(&db_path)) {
-        Client::<Device, SignalServer>::login(&db_path, certificate_path, server_url).await
+        Client::<Device, SignalServer>::login(&db_path, certificate_path, server_url, phone.into())
+            .await
     } else {
         Client::<Device, SignalServer>::register(
             name,
@@ -50,6 +50,7 @@ async fn make_client(
             &db_path,
             server_url,
             certificate_path,
+            phone.into(),
         )
         .await
     };
@@ -75,35 +76,29 @@ fn get_server_info() -> (Option<String>, String) {
     }
 }
 
-async fn receive_message(
-    client: &mut Client<Device, SignalServer>,
-    names: &HashMap<String, String>,
-    default: &String,
-) {
+async fn receive_message(client: &mut Client<Device, SignalServer>) {
     let msgs = client.receive_message().await.expect("Expected Message");
     for (i, msg) in msgs.iter().enumerate() {
-        let name = names
-            .get(
-                &msg.source_service_id()
-                    .expect("Failed to decode")
-                    .service_id_string(),
-            )
-            .unwrap_or(default);
         let msg_text = msg.try_get_message_as_string().expect("No Text Content");
+        let msg_name = msg.try_get_name_as_string().expect("No Name Content");
+        client
+            .add_contact(
+                &msg_name,
+                &msg.source_service_id().expect("Should contain service id"),
+                Some(vec![msg.source_device.expect("Should contain device id")]),
+            )
+            .await
+            .expect("Should add contact");
         match i {
-            0 => println!("{name}: {msg_text}"),
-            _ => println!("deniable {name}: {msg_text}"),
+            0 => println!("{msg_name}: {msg_text}"),
+            _ => println!("Deniable {msg_name}: {msg_text}"),
         }
     }
 }
 
-async fn receive_all_messages(
-    client: &mut Client<Device, SignalServer>,
-    names: &HashMap<String, String>,
-    default: &String,
-) {
+async fn receive_all_messages(client: &mut Client<Device, SignalServer>) {
     while client.has_message().await {
-        receive_message(client, names, default).await;
+        receive_message(client).await;
     }
 }
 
@@ -125,18 +120,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         println!("Started client with id: {}", &user.aci.service_id_string());
     }
 
-    let mut contact_names: HashMap<String, String> = user
-        .storage
-        .device
-        .lock()
-        .await
-        .get_all_nicknames()
-        .await?
-        .iter()
-        .map(|name| (name.service_id.service_id_string(), name.name.to_owned()))
-        .collect();
-    let default_sender = "Unknown Sender".to_owned();
-
     let send_regex = Regex::new(r"send:(?<alias>\w+):(?<text>(\w+\s)*)").unwrap();
     let denim_regex = Regex::new(r"denim:(?<alias>\w+):(?<text>(\w+\s)*)").unwrap();
     loop {
@@ -157,8 +140,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             user.add_contact(&caps["alias"], &service_id, None)
                                 .await
                                 .expect("No bob?");
-                            contact_names
-                                .insert(service_id.service_id_string(), caps["alias"].to_owned());
                         }
                         Err(err) => {
                             println!("{}", err);
@@ -186,9 +167,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             )
                             .await
                             .expect("No bob?");
-
-                            contact_names
-                                .insert(service_id.service_id_string(), caps["alias"].to_owned());
                         }
                         Err(err) => {
                             println!("{}", err);
@@ -200,7 +178,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 println!("Not valid deniable send command format")
             };
         } else if input.starts_with("read") {
-            receive_all_messages(&mut user, &contact_names, &default_sender).await;
+            receive_all_messages(&mut user).await;
         } else if input.starts_with("help") {
             println!("Supported commands are:");
             println!("  send:{{phone_number}}:{{message}}");

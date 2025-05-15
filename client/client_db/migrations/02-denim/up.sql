@@ -1,3 +1,9 @@
+CREATE TABLE DeniableDeviceIdentityKeyStore (
+  id               INTEGER PRIMARY KEY,
+  address          TEXT NOT NULL UNIQUE,
+  identity_key     TEXT NOT NULL
+);
+
 CREATE TABLE DeniableDeviceSessionStore (
   id              INTEGER PRIMARY KEY,
   address         TEXT NOT NULL UNIQUE,

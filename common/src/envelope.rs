@@ -38,6 +38,16 @@ impl ProcessedEnvelope {
                 "Could not decode message body - no message body.".to_owned(),
             ))?)
     }
+    pub fn try_get_name_as_string(&self) -> Result<String, SignalError> {
+        Ok(self.content()?.data_message()?.contact[0]
+            .name
+            .clone()
+            .ok_or(DecodeDataMessageError(
+                "Could not decode message contact - no message contact.".to_owned(),
+            ))?
+            .display_name()
+            .to_owned())
+    }
     pub fn source_service_id(&self) -> Result<ServiceId, DecodeEnvelopeError> {
         self.source_service_id
             .ok_or(DecodeEnvelopeError("No ServiceId in Content".to_owned()))

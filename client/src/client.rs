@@ -19,7 +19,10 @@ use bincode::{deserialize, serialize};
 use common::{
     deniable::chunk::Chunker,
     envelope::ProcessedEnvelope,
-    signalservice::{envelope, Content, DataMessage, Envelope},
+    signalservice::{
+        data_message::{contact::Name, Contact},
+        envelope, Content, DataMessage, Envelope,
+    },
     web_api::{
         AccountAttributes, DeniablePayload, DenimChunk, DenimMessage, DenimMessages, PreKeyRequest,
         RegistrationRequest, RegularPayload, SignalMessage,
@@ -29,7 +32,8 @@ use core::str;
 use include_dir::{include_dir, Dir};
 use libsignal_core::{Aci, DeviceId, Pni, ProtocolAddress, ServiceId};
 use libsignal_protocol::{
-    process_prekey_bundle, CiphertextMessage, IdentityKeyPair, PreKeyBundle, SessionStore,
+    process_prekey_bundle, CiphertextMessage, IdentityKeyPair, IdentityKeyStore, PreKeyBundle,
+    SessionStore,
 };
 use prost::Message;
 use rand::{rngs::OsRng, Rng};
@@ -42,6 +46,7 @@ use std::{
 };
 
 pub struct Client<T: ClientDB, U: SignalServerAPI> {
+    pub alias: String,
     pub aci: Aci,
     #[allow(dead_code)]
     pub pni: Pni,
@@ -62,6 +67,7 @@ static MIGRATIONS: LazyLock<Migrations<'static>> =
 
 impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
     fn new(
+        alias: String,
         aci: Aci,
         pni: Pni,
         contact_manager: ContactManager,
@@ -70,6 +76,7 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
         storage: Storage<T>,
     ) -> Self {
         Client {
+            alias,
             aci,
             pni,
             contact_manager,
@@ -97,6 +104,7 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
         database_url: &str,
         server_url: &str,
         cert_path: &Option<String>,
+        alias: String,
     ) -> Result<Client<Device, SignalServer>> {
         let mut csprng = OsRng;
         let aci_registration_id = OsRng.gen_range(1..16383);
@@ -214,6 +222,7 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
         // println!("Connected");
 
         Ok(Client::new(
+            alias,
             aci,
             pni,
             contact_manager,
@@ -227,6 +236,7 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
         database_url: &str,
         cert_path: &Option<String>,
         server_url: &str,
+        alias: String,
     ) -> Result<Client<Device, SignalServer>> {
         let conn = Client::<T, U>::connect_to_db(database_url).await?;
         let device = Arc::new(Mutex::new(Device::new(conn)));
@@ -284,6 +294,7 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
             .await
             .map_err(DatabaseError::from)?;
         Ok(Client::new(
+            alias,
             aci,
             pni,
             ContactManager::new_with_contacts(contacts),
@@ -317,7 +328,21 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
             .data_message(
                 DataMessage::builder()
                     .body(message.to_owned())
-                    .contact(vec![])
+                    .contact(vec![Contact {
+                        name: Some(Name {
+                            given_name: None,
+                            family_name: None,
+                            prefix: None,
+                            suffix: None,
+                            middle_name: None,
+                            display_name: Some(self.alias.to_owned()),
+                        }),
+                        number: vec![],
+                        email: vec![],
+                        address: vec![],
+                        avatar: None,
+                        organization: None,
+                    }])
                     .body_ranges(vec![])
                     .preview(vec![])
                     .attachments(vec![])
@@ -408,7 +433,21 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
             .data_message(
                 DataMessage::builder()
                     .body(message.to_owned())
-                    .contact(vec![])
+                    .contact(vec![Contact {
+                        name: Some(Name {
+                            given_name: None,
+                            family_name: None,
+                            prefix: None,
+                            suffix: None,
+                            middle_name: None,
+                            display_name: Some(self.alias.to_owned()),
+                        }),
+                        number: vec![],
+                        email: vec![],
+                        address: vec![],
+                        avatar: None,
+                        organization: None,
+                    }])
                     .body_ranges(vec![])
                     .preview(vec![])
                     .attachments(vec![])
@@ -419,7 +458,7 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
         let timestamp = SystemTime::now();
 
         let msgs = encrypt(
-            &mut self.storage.protocol_store.identity_key_store,
+            &mut self.storage.protocol_store.deniable_identity_key_store,
             &mut self.storage.protocol_store.deniable_store,
             self.contact_manager.get_contact(&service_id)?,
             pad_message(content.encode_to_vec().as_ref()).as_ref(),
@@ -509,7 +548,7 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
                             Envelope::decrypt(
                                 envelope,
                                 &mut self.storage.protocol_store.deniable_store,
-                                &mut self.storage.protocol_store.identity_key_store,
+                                &mut self.storage.protocol_store.deniable_identity_key_store,
                                 &mut self.storage.protocol_store.pre_key_store,
                                 &mut self.storage.protocol_store.signed_pre_key_store,
                                 &mut self.storage.protocol_store.kyber_pre_key_store,
@@ -776,13 +815,18 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
         } else {
             &mut self.storage.protocol_store.session_store
         };
+        let identity_key_store: &mut dyn IdentityKeyStore = if deniable {
+            &mut self.storage.protocol_store.deniable_identity_key_store
+        } else {
+            &mut self.storage.protocol_store.identity_key_store
+        };
         for ref bundle in bundles {
             let device_id = bundle.device_id().expect("Device id should be safe");
             device_ids.push(device_id);
             process_prekey_bundle(
                 &ProtocolAddress::new(service_id.service_id_string(), device_id),
                 session_store,
-                &mut self.storage.protocol_store.identity_key_store,
+                identity_key_store,
                 bundle,
                 time,
                 &mut OsRng,

@@ -57,9 +57,9 @@ impl Default for KeyManager {
     fn default() -> Self {
         Self {
             key_incrementer_map: HashMap::from([
-                (PreKeyType::Signed, 0u32),
-                (PreKeyType::Kyber, 0u32),
-                (PreKeyType::OneTime, 0u32),
+                (PreKeyType::Signed, 1u32),
+                (PreKeyType::Kyber, 1u32),
+                (PreKeyType::OneTime, 1u32),
             ]),
         }
     }
@@ -254,9 +254,9 @@ mod key_manager_tests {
     fn get_id_test() {
         let mut manager = KeyManager::default();
         let id0 = manager.get_new_key_id(PreKeyType::OneTime);
-        assert_eq!(id0, 0);
+        assert_eq!(id0, 1);
         let id1 = manager.get_new_key_id(PreKeyType::OneTime);
-        assert_eq!(id1, 1);
+        assert_eq!(id1, 2);
     }
 
     #[tokio::test]
