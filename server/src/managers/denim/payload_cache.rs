@@ -8,7 +8,10 @@ use crate::{
     storage::redis::{self, Decoder},
 };
 use anyhow::{Ok, Result};
-use common::{deniable::chunk::ChunkType, web_api::DeniablePayload};
+use common::{
+    deniable::{chunk::ChunkType, constants},
+    web_api::DeniablePayload,
+};
 use deadpool_redis::Connection;
 use libsignal_core::ProtocolAddress;
 use std::{collections::HashMap, sync::Arc};
@@ -191,7 +194,7 @@ where
         address: &ProtocolAddress,
         buffer: Buffer,
         bytes_amount: usize,
-    ) -> Result<Vec<(Vec<u8>, i32)>> {
+    ) -> Result<(Vec<(Vec<u8>, i32)>, usize)> {
         let queue_key = self.get_queue_key(address, buffer);
         let queue_lock_key = self.get_persist_in_progress_key(address, buffer);
         let queue_metadata_key: String = self.get_queue_metadata_key(address, buffer);
@@ -199,7 +202,8 @@ where
 
         let mut result = Vec::new();
         let mut take = bytes_amount;
-        while take > 0 {
+        while take >= constants::EMPTY_DENIMCHUNK_SIZE {
+            take -= constants::EMPTY_DENIMCHUNK_SIZE;
             let connection = self.pool.get().await?;
             let (data, taken, order) = redis::dequeue_bytes(
                 connection,
@@ -212,6 +216,7 @@ where
             .await?;
             if taken == 0 {
                 result.push((vec![0; take], ChunkType::Dummy.into()));
+                take = 0;
                 break;
             } else {
                 take -= taken;
@@ -219,7 +224,7 @@ where
             }
         }
 
-        Ok(result)
+        Ok((result, take))
     }
 
     pub async fn add_availability_listener(
