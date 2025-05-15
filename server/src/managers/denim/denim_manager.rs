@@ -15,7 +15,7 @@ where
 {
     chunk_cache: ChunkCache<T>,
     payload_cache: PayloadCache<T>,
-    chunker: Chunker,
+    pub chunker: Chunker,
 }
 
 impl<T> Clone for DenIMManager<T>
@@ -44,11 +44,11 @@ impl<T> DenIMManager<T>
 where
     T: AvailabilityListener,
 {
-    pub fn new(chunk_cache: ChunkCache<T>, payload_cache: PayloadCache<T>) -> Self {
+    pub fn new(chunk_cache: ChunkCache<T>, payload_cache: PayloadCache<T>, q_value: f32) -> Self {
         Self {
             chunk_cache,
             payload_cache,
-            chunker: Chunker::default(),
+            chunker: Chunker::new(q_value),
         }
     }
 
@@ -182,7 +182,7 @@ where
         let chunks = self
             .dequeue_outgoing_payload_buffer(receiver, free_space)
             .await?;
-        let q = self.chunker.q;
+        let q = self.chunker.q_value;
 
         let denim_message = DenimMessage {
             regular_payload,
@@ -300,11 +300,14 @@ pub mod denim_manager_tests {
         chunks
     }
 
-    fn create_payload_chunks(payload_data: PayloadData) -> (Vec<DenimChunk>, Vec<DenimChunk>) {
+    fn create_payload_chunks(
+        chunker: &Chunker,
+        payload_data: PayloadData,
+    ) -> (Vec<DenimChunk>, Vec<DenimChunk>) {
         let mut result = Vec::new();
 
         let (incoming_chunks, _size, mut pending_data) =
-            common::deniable::chunk::Chunker::create_ordered_chunks(0.6, 40.0, payload_data);
+            chunker.create_ordered_chunks(40.0, payload_data);
 
         result.append(&mut incoming_chunks.clone());
 
@@ -314,11 +317,7 @@ pub mod denim_manager_tests {
             }
 
             let (incoming_chunks, _size, new_pending_data) =
-                common::deniable::chunk::Chunker::create_ordered_chunks(
-                    0.6,
-                    40.0,
-                    pending_data.clone(),
-                );
+                chunker.create_ordered_chunks(40.0, pending_data.clone());
 
             pending_data = new_pending_data;
 
@@ -465,12 +464,9 @@ pub mod denim_manager_tests {
 
         let data = bincode::serialize(&payload).unwrap();
 
-        let (incoming_chunks, _size, _pending_data) =
-            common::deniable::chunk::Chunker::create_ordered_chunks(
-                0.6,
-                150.0,
-                PayloadData::new(data),
-            );
+        let (incoming_chunks, _size, _pending_data) = denim_manager
+            .chunker
+            .create_ordered_chunks(150.0, PayloadData::new(data));
 
         let (_, sender_address) = new_account_and_address();
 
@@ -510,15 +506,13 @@ pub mod denim_manager_tests {
 
         let dummy_chunks = create_chunks(5, 1);
 
-        let (incoming_chunks1, _size1, pending_data1) =
-            common::deniable::chunk::Chunker::create_ordered_chunks(
-                0.6,
-                100.0,
-                PayloadData::new(data),
-            );
+        let (incoming_chunks1, _size1, pending_data1) = denim_manager
+            .chunker
+            .create_ordered_chunks(100.0, PayloadData::new(data));
 
-        let (incoming_chunks2, _size2, pending_data2) =
-            common::deniable::chunk::Chunker::create_ordered_chunks(0.6, 100.0, pending_data1);
+        let (incoming_chunks2, _size2, pending_data2) = denim_manager
+            .chunker
+            .create_ordered_chunks(100.0, pending_data1);
 
         let (_, sender_address) = new_account_and_address();
 
@@ -572,19 +566,13 @@ pub mod denim_manager_tests {
         );
         let data2 = bincode::serialize(&payload2).unwrap();
 
-        let (incoming_chunks1, _size1, pending_data1) =
-            common::deniable::chunk::Chunker::create_ordered_chunks(
-                0.6,
-                150.0,
-                PayloadData::new(data1),
-            );
+        let (incoming_chunks1, _size1, pending_data1) = denim_manager
+            .chunker
+            .create_ordered_chunks(150.0, PayloadData::new(data1));
 
-        let (incoming_chunks2, _size2, pending_data2) =
-            common::deniable::chunk::Chunker::create_ordered_chunks(
-                0.6,
-                150.0,
-                PayloadData::new(data2),
-            );
+        let (incoming_chunks2, _size2, pending_data2) = denim_manager
+            .chunker
+            .create_ordered_chunks(150.0, PayloadData::new(data2));
 
         let (_, sender_address) = new_account_and_address();
 
@@ -628,12 +616,9 @@ pub mod denim_manager_tests {
         );
         let data = bincode::serialize(&payload).unwrap();
 
-        let (incoming_chunks, _size, mut pending_data) =
-            common::deniable::chunk::Chunker::create_ordered_chunks(
-                0.6,
-                40.0,
-                PayloadData::new(data),
-            );
+        let (incoming_chunks, _size, mut pending_data) = denim_manager
+            .chunker
+            .create_ordered_chunks(40.0, PayloadData::new(data));
 
         let _ = denim_manager
             .enqueue_incoming_chunk_buffer(&sender_address, incoming_chunks)
@@ -641,12 +626,9 @@ pub mod denim_manager_tests {
 
         // Exhaust pending data to create and store chunks
         while !pending_data.chunk.is_empty() {
-            let (incoming_chunks, _size, new_pending_data) =
-                common::deniable::chunk::Chunker::create_ordered_chunks(
-                    0.6,
-                    40.0,
-                    pending_data.clone(),
-                );
+            let (incoming_chunks, _size, new_pending_data) = denim_manager
+                .chunker
+                .create_ordered_chunks(40.0, pending_data.clone());
             pending_data = new_pending_data;
             let _ = denim_manager
                 .enqueue_incoming_chunk_buffer(&sender_address, incoming_chunks)
@@ -682,12 +664,9 @@ pub mod denim_manager_tests {
         );
         let data = bincode::serialize(&payload).unwrap();
 
-        let (incoming_chunks, _size, mut pending_data) =
-            common::deniable::chunk::Chunker::create_ordered_chunks(
-                0.6,
-                40.0,
-                PayloadData::new(data),
-            );
+        let (incoming_chunks, _size, mut pending_data) = denim_manager
+            .chunker
+            .create_ordered_chunks(40.0, PayloadData::new(data));
 
         // Store chunks to later insert into cache
         let mut buffer = Vec::<DenimChunk>::new();
@@ -705,12 +684,9 @@ pub mod denim_manager_tests {
                 break Vec::new();
             }
 
-            let (incoming_chunks, _size, new_pending_data) =
-                common::deniable::chunk::Chunker::create_ordered_chunks(
-                    0.6,
-                    40.0,
-                    pending_data.clone(),
-                );
+            let (incoming_chunks, _size, new_pending_data) = denim_manager
+                .chunker
+                .create_ordered_chunks(40.0, pending_data.clone());
 
             pending_data = new_pending_data;
 
@@ -762,7 +738,7 @@ pub mod denim_manager_tests {
 
         let data1 = bincode::serialize(&payload1).unwrap();
         let (mut payload_chunks1, mut final_payload_chunks1) =
-            create_payload_chunks(PayloadData::new(data1));
+            create_payload_chunks(&denim_manager.chunker, PayloadData::new(data1));
 
         let payload2 = create_deniable_payload(
             DeniablePayload::SignalMessage(SignalMessage::default()),
@@ -771,7 +747,7 @@ pub mod denim_manager_tests {
 
         let data2 = bincode::serialize(&payload2).unwrap();
         let (mut payload_chunks2, mut final_payload_chunks2) =
-            create_payload_chunks(PayloadData::new(data2));
+            create_payload_chunks(&denim_manager.chunker, PayloadData::new(data2));
 
         // Add some dummy chunks
         let dummy_chunks = create_chunks(5, 1);
@@ -880,8 +856,10 @@ pub mod denim_manager_tests {
             .await
             .unwrap();
 
-        let (payload_chunks, final_payload_chunks) =
-            create_payload_chunks(PayloadData::new(result_outgoing_payloads_raw[0].clone()));
+        let (payload_chunks, final_payload_chunks) = create_payload_chunks(
+            &denim_manager.chunker,
+            PayloadData::new(result_outgoing_payloads_raw[0].clone()),
+        );
 
         let (result_payloads, pending_chunks) = denim_manager
             .create_deniable_payloads(vec![payload_chunks, final_payload_chunks].concat())
@@ -924,11 +902,15 @@ pub mod denim_manager_tests {
             .await
             .unwrap();
 
-        let (payload_chunks1, final_payload_chunks1) =
-            create_payload_chunks(PayloadData::new(result_outgoing_payloads_raw[0].clone()));
+        let (payload_chunks1, final_payload_chunks1) = create_payload_chunks(
+            &denim_manager.chunker,
+            PayloadData::new(result_outgoing_payloads_raw[0].clone()),
+        );
 
-        let (payload_chunks2, final_payload_chunks2) =
-            create_payload_chunks(PayloadData::new(result_outgoing_payloads_raw[1].clone()));
+        let (payload_chunks2, final_payload_chunks2) = create_payload_chunks(
+            &denim_manager.chunker,
+            PayloadData::new(result_outgoing_payloads_raw[1].clone()),
+        );
 
         let (result_payloads, pending_chunks) = denim_manager
             .create_deniable_payloads(
@@ -1452,7 +1434,7 @@ pub mod denim_manager_tests {
         let data = bincode::serialize(&outgoing_payload1).unwrap();
 
         let (payload_chunks1, final_payload_chunks1) =
-            create_payload_chunks(PayloadData::new(data));
+            create_payload_chunks(&denim_manager.chunker, PayloadData::new(data));
 
         let _ = denim_manager
             .enqueue_outgoing_chunk_buffer(

@@ -845,10 +845,11 @@ async fn create_websocket_endpoint(
         Some(TypedHeader(user_agent)) => user_agent.to_string(),
         None => "Unknown browser".to_string(),
     };
+    let q_value = state.denim_manager.chunker.q_value.to_string();
 
     println!("`{user_agent}` at {socket_addr} connected.");
 
-    ws.on_upgrade(move |socket| {
+    let mut res = ws.on_upgrade(move |socket| {
         let mut websocket_manager = state.websocket_manager.clone();
         async move {
             let signal_websocket = SignalWebSocket::new(socket);
@@ -886,7 +887,10 @@ async fn create_websocket_endpoint(
                 .set_present(&address, websocket_manager)
                 .await;
         }
-    })
+    });
+    res.headers_mut()
+        .append("q-value", HeaderValue::from_str(&q_value).unwrap());
+    res
 }
 
 #[debug_handler]
@@ -945,7 +949,9 @@ pub async fn start_server(use_tls: bool) -> Result<(), Box<dyn std::error::Error
             HeaderName::from_static("x-signal-agent"),
         ]);
 
-    let state = SignalServerState::<PostgresDatabase, SignalWebSocket>::new().await;
+    dotenv::dotenv()?;
+    let q_value = env::var("Q_VALUE")?.parse()?;
+    let state = SignalServerState::<PostgresDatabase, SignalWebSocket>::new(q_value).await;
 
     let message_persister = MessagePersister::<
         PostgresDatabase,
