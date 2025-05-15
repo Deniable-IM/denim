@@ -1,3 +1,5 @@
+DROP TABLE DeniableDeviceIdentityKeyStore;
+
 DROP TABLE DeniableDeviceSessionStore;
 
 DROP TABLE DeniablePayload;

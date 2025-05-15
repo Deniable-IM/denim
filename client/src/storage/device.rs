@@ -48,6 +48,31 @@ impl Device {
 
         Ok(())
     }
+
+    async fn insert_deniable_identity(
+        &self,
+        address: &ProtocolAddress,
+        identity: &IdentityKey,
+    ) -> Result<(), SignalProtocolError> {
+        let addr = format!("{}", address);
+        let key = BASE64_STANDARD.encode(identity.serialize());
+
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
+            INSERT INTO DeniableDeviceIdentityKeyStore (address, identity_key)
+            VALUES (?1, ?2)
+            ON CONFLICT(address) DO UPDATE SET identity_key = ?3
+            "#,
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        stmt.execute(params![addr, key, key])
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        Ok(())
+    }
 }
 
 #[async_trait(?Send)]
@@ -392,6 +417,7 @@ impl ClientDB for Device {
 
         Ok(row)
     }
+
     async fn save_identity(
         &mut self,
         address: &ProtocolAddress,
@@ -414,6 +440,28 @@ impl ClientDB for Device {
         }
     }
 
+    async fn save_deniable_identity(
+        &mut self,
+        address: &ProtocolAddress,
+        identity: &IdentityKey,
+    ) -> Result<bool, Self::Error> {
+        match self
+            .get_deniable_identity(address)
+            .await
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))?
+        {
+            Some(key) if key == *identity => Ok(false),
+            Some(_key) => {
+                self.insert_deniable_identity(address, identity).await?;
+                Ok(false)
+            }
+            None => {
+                self.insert_deniable_identity(address, identity).await?;
+                Ok(true)
+            }
+        }
+    }
+
     async fn is_trusted_identity(
         &self,
         address: &ProtocolAddress,
@@ -422,6 +470,22 @@ impl ClientDB for Device {
     ) -> Result<bool, Self::Error> {
         match self
             .get_identity(address)
+            .await
+            .expect("This function cannot return err")
+        {
+            Some(i) => Ok(i == *identity),
+            None => Ok(true),
+        }
+    }
+
+    async fn is_trusted_deniable_identity(
+        &self,
+        address: &ProtocolAddress,
+        identity: &IdentityKey,
+        _direction: Direction,
+    ) -> Result<bool, Self::Error> {
+        match self
+            .get_deniable_identity(address)
             .await
             .expect("This function cannot return err")
         {
@@ -444,6 +508,43 @@ impl ClientDB for Device {
                 identity_key
             FROM
                 DeviceIdentityKeyStore
+            WHERE
+                address = ?1
+            "#,
+            )
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        let row: Option<String> = stmt
+            .query_row([addr], |row| Ok(row.get(0)?))
+            .optional()
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{}", err)))?;
+
+        match row {
+            Some(identity_key) => Ok(Some(
+                BASE64_STANDARD
+                    .decode(identity_key)
+                    .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))?
+                    .as_slice()
+                    .try_into()?,
+            )),
+            None => Ok(None),
+        }
+    }
+
+    async fn get_deniable_identity(
+        &self,
+        address: &ProtocolAddress,
+    ) -> Result<Option<IdentityKey>, Self::Error> {
+        let addr = format!("{}", address);
+
+        let mut stmt = self
+            .conn
+            .prepare(
+                r#"
+            SELECT
+                identity_key
+            FROM
+                DeniableDeviceIdentityKeyStore
             WHERE
                 address = ?1
             "#,
@@ -1725,9 +1826,9 @@ mod device_protocol_test {
 
         let (pkidmax, spkidmax, kpkidmax) = device.lock().await.get_key_ids().await.unwrap();
 
-        assert_eq!(pkidmax, 0);
-        assert_eq!(spkidmax, 1);
-        assert_eq!(kpkidmax, 2);
+        assert_eq!(pkidmax, 1);
+        assert_eq!(spkidmax, 2);
+        assert_eq!(kpkidmax, 3);
     }
 
     #[tokio::test]
@@ -1838,9 +1939,9 @@ mod device_protocol_test {
 
         let (pkidmax, spkidmax, kpkidmax) = device.lock().await.get_key_ids().await.unwrap();
 
-        assert_eq!(pkidmax, 1);
-        assert_eq!(spkidmax, 1);
-        assert_eq!(kpkidmax, 2);
+        assert_eq!(pkidmax, 2);
+        assert_eq!(spkidmax, 2);
+        assert_eq!(kpkidmax, 3);
     }
 
     #[tokio::test]

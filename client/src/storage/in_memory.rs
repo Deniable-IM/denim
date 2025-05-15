@@ -119,6 +119,16 @@ impl ClientDB for InMemory {
             .await
     }
 
+    async fn save_deniable_identity(
+        &mut self,
+        address: &ProtocolAddress,
+        identity: &IdentityKey,
+    ) -> Result<bool, Self::Error> {
+        self.identity_key_store
+            .save_identity(address, identity)
+            .await
+    }
+
     async fn is_trusted_identity(
         &self,
         address: &ProtocolAddress,
@@ -130,7 +140,25 @@ impl ClientDB for InMemory {
             .await
     }
 
+    async fn is_trusted_deniable_identity(
+        &self,
+        address: &ProtocolAddress,
+        identity: &IdentityKey,
+        direction: Direction,
+    ) -> Result<bool, Self::Error> {
+        self.identity_key_store
+            .is_trusted_identity(address, identity, direction)
+            .await
+    }
+
     async fn get_identity(
+        &self,
+        address: &ProtocolAddress,
+    ) -> Result<Option<IdentityKey>, Self::Error> {
+        self.identity_key_store.get_identity(address).await
+    }
+
+    async fn get_deniable_identity(
         &self,
         address: &ProtocolAddress,
     ) -> Result<Option<IdentityKey>, Self::Error> {

@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
 use super::database::{
-    ClientDB, DeniableStore, DeviceIdentityKeyStore, DeviceKyberPreKeyStore, DevicePreKeyStore,
-    DeviceSenderKeyStore, DeviceSessionStore, DeviceSignedPreKeyStore,
+    ClientDB, DeniableIdentityKeyStore, DeniableStore, DeviceIdentityKeyStore,
+    DeviceKyberPreKeyStore, DevicePreKeyStore, DeviceSenderKeyStore, DeviceSessionStore,
+    DeviceSignedPreKeyStore,
 };
 use async_std::sync::Mutex;
 use axum::async_trait;
@@ -37,6 +38,7 @@ pub struct ProtocolStore<T: ClientDB> {
     pub session_store: DeviceSessionStore<T>,
     pub sender_key_store: DeviceSenderKeyStore<T>,
     pub deniable_store: DeniableStore<T>,
+    pub deniable_identity_key_store: DeniableIdentityKeyStore<T>,
 }
 
 impl<T: ClientDB> ProtocolStore<T> {
@@ -49,6 +51,7 @@ impl<T: ClientDB> ProtocolStore<T> {
             session_store: DeviceSessionStore::new(device.clone()),
             sender_key_store: DeviceSenderKeyStore::new(device.clone()),
             deniable_store: DeniableStore::new(device.clone()),
+            deniable_identity_key_store: DeniableIdentityKeyStore::new(device.clone()),
         }
     }
 }

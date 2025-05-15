@@ -48,13 +48,28 @@ pub trait ClientDB {
         address: &ProtocolAddress,
         identity: &IdentityKey,
     ) -> Result<bool, Self::Error>;
+    async fn save_deniable_identity(
+        &mut self,
+        address: &ProtocolAddress,
+        identity: &IdentityKey,
+    ) -> Result<bool, Self::Error>;
     async fn is_trusted_identity(
         &self,
         address: &ProtocolAddress,
         identity: &IdentityKey,
         direction: Direction,
     ) -> Result<bool, Self::Error>;
+    async fn is_trusted_deniable_identity(
+        &self,
+        address: &ProtocolAddress,
+        identity: &IdentityKey,
+        direction: Direction,
+    ) -> Result<bool, Self::Error>;
     async fn get_identity(
+        &self,
+        address: &ProtocolAddress,
+    ) -> Result<Option<IdentityKey>, Self::Error>;
+    async fn get_deniable_identity(
         &self,
         address: &ProtocolAddress,
     ) -> Result<Option<IdentityKey>, Self::Error>;
@@ -505,6 +520,76 @@ impl<T: ClientDB> DeniableSendingBuffer for DeniableStore<T> {
             .lock()
             .await
             .remove_deniable_payload(message_id)
+            .await
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))
+    }
+}
+
+pub struct DeniableIdentityKeyStore<T: ClientDB> {
+    db: Arc<Mutex<T>>,
+}
+
+impl<T: ClientDB> DeniableIdentityKeyStore<T> {
+    pub fn new(db: Arc<Mutex<T>>) -> Self {
+        Self { db }
+    }
+}
+
+#[async_trait(?Send)]
+impl<T: ClientDB> IdentityKeyStore for DeniableIdentityKeyStore<T> {
+    async fn get_identity_key_pair(&self) -> Result<IdentityKeyPair, SignalProtocolError> {
+        self.db
+            .lock()
+            .await
+            .get_identity_key_pair()
+            .await
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))
+    }
+
+    async fn get_local_registration_id(&self) -> Result<u32, SignalProtocolError> {
+        self.db
+            .lock()
+            .await
+            .get_local_registration_id()
+            .await
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))
+    }
+
+    async fn save_identity(
+        &mut self,
+        address: &ProtocolAddress,
+        identity: &IdentityKey,
+    ) -> Result<bool, SignalProtocolError> {
+        self.db
+            .lock()
+            .await
+            .save_deniable_identity(address, identity)
+            .await
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))
+    }
+
+    async fn is_trusted_identity(
+        &self,
+        address: &ProtocolAddress,
+        identity: &IdentityKey,
+        direction: Direction,
+    ) -> Result<bool, SignalProtocolError> {
+        self.db
+            .lock()
+            .await
+            .is_trusted_deniable_identity(address, identity, direction)
+            .await
+            .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))
+    }
+
+    async fn get_identity(
+        &self,
+        address: &ProtocolAddress,
+    ) -> Result<Option<IdentityKey>, SignalProtocolError> {
+        self.db
+            .lock()
+            .await
+            .get_deniable_identity(address)
             .await
             .map_err(|err| SignalProtocolError::InvalidArgument(format!("{err}")))
     }
