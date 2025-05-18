@@ -63,11 +63,11 @@ impl<U> SignalServerState<PostgresDatabase, U>
 where
     U: WSStream<Message, axum::Error> + Debug,
 {
-    pub async fn new() -> Self {
-        SignalServerState::connect("DATABASE_URL").await
+    pub async fn new(q_value: f32) -> Self {
+        SignalServerState::connect("DATABASE_URL", q_value).await
     }
 
-    pub async fn connect(connection_str: &str) -> Self {
+    pub async fn connect(connection_str: &str, q_value: f32) -> Self {
         let db = PostgresDatabase::connect(connection_str.to_string()).await;
         let cache = MessageCache::connect();
         Self {
@@ -78,7 +78,7 @@ where
             message_manager: MessagesManager::new(db, cache.clone()),
             client_presence_manager: ClientPresenceManager::connect(),
             message_cache: cache.clone(),
-            denim_manager: DenIMManager::new(cache.clone().into(), cache.clone().into()),
+            denim_manager: DenIMManager::new(cache.clone().into(), cache.clone().into(), q_value),
         }
     }
 }
@@ -104,7 +104,7 @@ impl SignalServerState<MockDB, MockSocket> {
             message_manager: MessagesManager::new(db, cache.clone()),
             client_presence_manager: ClientPresenceManager::connect(),
             message_cache: cache.clone(),
-            denim_manager: DenIMManager::new(cache.clone().into(), cache.clone().into()),
+            denim_manager: DenIMManager::new(cache.clone().into(), cache.clone().into(), 0.6),
         }
     }
 }

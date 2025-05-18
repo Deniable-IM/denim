@@ -20,17 +20,22 @@ HTTP_PORT=80
 
 if you are on linux and do not want to sudo the program, you can change the HTTPS and HTTP ports to your liking.
 
-3. Go into `server/cert`
-4. Generate certificates by running the following
+3. An additional optional q value parameter can be added to the `.env` file to control the size of the deniable messages, if not present it will default to a value of 0.6
+```
+Q_VALUE=0.6
+```
+
+4. Go into `server/cert`
+5. Generate certificates by running the following
 ```zsh
 ./generate_cert.sh
 ```
-5. Go back into `server`
-6. Start the database by running the following command
+6. Go back into `server`
+7. Start the database by running the following command
 ```zsh
 docker-compose up
 ```
-7. Start the server by running the following command
+8. Start the server by running the following command
 ```zsh
 cargo run
 ```

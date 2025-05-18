@@ -582,7 +582,8 @@ pub(crate) mod test {
     #[tokio::test]
     async fn test_alice_sends_msg_to_bob() {
         let mut state =
-            SignalServerState::<PostgresDatabase, MockSocket>::connect("DATABASE_URL_TEST").await;
+            SignalServerState::<PostgresDatabase, MockSocket>::connect("DATABASE_URL_TEST", 0.6)
+                .await;
         let (alice, alice_sender, mut alice_receiver, alice_mreceiver) =
             create_connection("127.0.0.1:4042", state.clone()).await;
         let (bob, _alice_sender, mut bob_receiver, bob_mreceiver) =

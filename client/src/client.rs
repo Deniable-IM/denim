@@ -55,6 +55,7 @@ pub struct Client<T: ClientDB, U: SignalServerAPI> {
     #[allow(dead_code)]
     key_manager: KeyManager,
     pub storage: Storage<T>,
+    pub chunker: Chunker,
 }
 
 const PROFILE_KEY_LENGTH: usize = 32;
@@ -74,6 +75,7 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
         server_api: U,
         key_manager: KeyManager,
         storage: Storage<T>,
+        chunker: Chunker,
     ) -> Self {
         Client {
             alias,
@@ -83,6 +85,7 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
             server_api,
             key_manager,
             storage,
+            chunker,
         }
     }
 
@@ -216,9 +219,10 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
         server_api.publish_pre_key_bundle(key_bundle).await?;
 
         // println!("Connecting to {}...", server_url);
-        server_api
+        let q_value = server_api
             .connect(&aci.service_id_string(), &password, server_url, cert_path)
-            .await?;
+            .await?
+            .unwrap();
         // println!("Connected");
 
         Ok(Client::new(
@@ -229,6 +233,7 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
             server_api,
             key_manager,
             storage,
+            Chunker::new(q_value),
         ))
     }
 
@@ -275,7 +280,7 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
 
         let mut server_api = SignalServer::new(cert_path, server_url);
 
-        server_api
+        let q_value = server_api
             .connect(&aci.service_id_string(), &password, server_url, cert_path)
             .await?;
 
@@ -301,6 +306,7 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
             server_api,
             KeyManager::new(signed + 1, kyber + 1, one_time + 1), // Adds 1 to prevent reusing key ids
             Storage::new(device.clone(), ProtocolStore::new(device.clone())),
+            Chunker::new(q_value.unwrap()),
         ))
     }
 
@@ -382,13 +388,14 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
             let regular_payload_size = serialize(&regular_payload)
                 .expect("Should serialize payload")
                 .len() as f32;
-            let chunks = Chunker::create_chunks(
-                0.6, //REPLACE WITH GLOBAL VALUE FROM SERVER
-                regular_payload_size,
-                &mut self.storage.protocol_store.deniable_store,
-            )
-            .await
-            .expect("Should create chunks");
+            let chunks = self
+                .chunker
+                .create_chunks(
+                    regular_payload_size,
+                    &mut self.storage.protocol_store.deniable_store,
+                )
+                .await
+                .expect("Should create chunks");
 
             denim_messages.push(DenimMessage {
                 regular_payload,
@@ -509,6 +516,11 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
             .await
             .ok_or(ReceiveMessageError::NoMessageReceived)?;
         let denim_msg: DenimMessage = deserialize(request.body()).unwrap();
+        self.chunker.set_q_value(
+            denim_msg
+                .q
+                .expect("q value should always be populated by server"),
+        );
         let envelope = match denim_msg.regular_payload {
             RegularPayload::Envelope(e) => e,
             _ => {
