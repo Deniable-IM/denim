@@ -950,7 +950,7 @@ pub async fn start_server(use_tls: bool) -> Result<(), Box<dyn std::error::Error
         ]);
 
     dotenv::dotenv()?;
-    let q_value = env::var("Q_VALUE")?.parse()?;
+    let q_value = env::var("Q_VALUE").unwrap_or("0.6".to_owned()).parse()?;
     let state = SignalServerState::<PostgresDatabase, SignalWebSocket>::new(q_value).await;
 
     let message_persister = MessagePersister::<
