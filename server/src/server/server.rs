@@ -852,40 +852,42 @@ async fn create_websocket_endpoint(
     let mut res = ws.on_upgrade(move |socket| {
         let mut websocket_manager = state.websocket_manager.clone();
         async move {
-            let signal_websocket = SignalWebSocket::new(socket);
-            let (sender, receiver) = signal_websocket.split();
+            tokio::spawn(async move {
+                let signal_websocket = SignalWebSocket::new(socket);
+                let (sender, receiver) = signal_websocket.split();
 
-            // Create websocket connection
-            let websocket = WebSocketConnection::new(
-                UserIdentity::AuthenticatedDevice(authenticated_device.into()),
-                socket_addr,
-                sender,
-                state.clone(),
-            );
+                // Create websocket connection
+                let websocket = WebSocketConnection::new(
+                    UserIdentity::AuthenticatedDevice(authenticated_device.into()),
+                    socket_addr,
+                    sender,
+                    state.clone(),
+                );
 
-            let address = websocket.protocol_address();
+                let address = websocket.protocol_address();
 
-            // Listen for new messages
-            websocket_manager.listen(websocket, receiver).await;
+                // Listen for new messages
+                websocket_manager.listen(websocket, receiver).await;
 
-            // Check if webSocket upgrade was successful
-            let Some(websocket_manager) = websocket_manager.get(&address).await else {
-                println!("ws.on_upgrade: WebSocket does not exist in WebSocketManager");
-                return;
-            };
+                // Check if webSocket upgrade was successful
+                let Some(websocket_manager) = websocket_manager.get(&address).await else {
+                    println!("ws.on_upgrade: WebSocket does not exist in WebSocketManager");
+                    return;
+                };
 
-            // Send all persisted message to new connected device
-            websocket_manager.lock().await.send_persisted().await;
+                // Send all persisted message to new connected device
+                websocket_manager.lock().await.send_persisted().await;
 
-            state
-                .message_manager
-                .add_message_availability_listener(&address, websocket_manager.clone())
-                .await;
+                state
+                    .message_manager
+                    .add_message_availability_listener(&address, websocket_manager.clone())
+                    .await;
 
-            let _ = state
-                .client_presence_manager
-                .set_present(&address, websocket_manager)
-                .await;
+                let _ = state
+                    .client_presence_manager
+                    .set_present(&address, websocket_manager)
+                    .await;
+            });
         }
     });
     res.headers_mut()
