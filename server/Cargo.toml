@@ -48,6 +48,7 @@ log = "0.4.22"
 tracing-appender = "0.2.3"
 bon = "3.0.0"
 hmac = "0.12.1"
+num_cpus = "1.17.0"
 
 [build-dependencies]
 tonic-build = "0.12.3"
