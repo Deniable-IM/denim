@@ -38,7 +38,7 @@ async fn make_client(
     phone: &str,
     certificate_path: &Option<String>,
     server_url: &str,
-) -> Client<Device, SignalServer> {
+) -> Result<Client<Device, SignalServer>, String> {
     let db_path = client_db_path() + "/" + name + ".db";
     let client = if Path::exists(Path::new(&db_path)) {
         Client::<Device, SignalServer>::login(&db_path, certificate_path, server_url, phone.into())
@@ -54,7 +54,11 @@ async fn make_client(
         )
         .await
     };
-    client.expect("Failed to create client")
+
+    match client {
+        Ok(client) => Ok(client),
+        Err(err) => Err(format!("Failed to create client {}: {}", name, err)),
+    }
 }
 
 fn get_server_info() -> (Option<String>, String) {
@@ -114,7 +118,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .unwrap_or(false);
 
     let (cert_path, server_url) = get_server_info();
-    let mut user = make_client(&args[1], &args[2], &cert_path, &server_url).await;
+    let mut user = make_client(&args[1], &args[2], &cert_path, &server_url).await?;
 
     if debug_print {
         println!("Started client with id: {}", &user.aci.service_id_string());
