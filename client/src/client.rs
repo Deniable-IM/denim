@@ -218,12 +218,20 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
 
         server_api.publish_pre_key_bundle(key_bundle).await?;
 
-        // println!("Connecting to {}...", server_url);
         let q_value = server_api
             .connect(&aci.service_id_string(), &password, server_url, cert_path)
-            .await?
-            .unwrap();
-        // println!("Connected");
+            .await;
+
+        let q = match q_value {
+            Ok(Some(q)) => Ok(q),
+            Ok(None) => Err(SignalClientError::WebSocketError(
+                "WebSocket already connected; no q-value returned".to_string(),
+            )),
+            Err(err) => Err(SignalClientError::WebSocketError(format!(
+                "Register failed: {}",
+                err
+            ))),
+        }?;
 
         Ok(Client::new(
             alias,
@@ -233,7 +241,7 @@ impl<T: ClientDB, U: SignalServerAPI> Client<T, U> {
             server_api,
             key_manager,
             storage,
-            Chunker::new(q_value),
+            Chunker::new(q),
         ))
     }
 
