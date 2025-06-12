@@ -193,12 +193,6 @@ pub async fn handle_receiving_chunks<
         return Ok(());
     };
 
-    let receiver_device_id = destination
-        .devices()
-        .first()
-        .ok_or_else(|| anyhow!("Error"))?
-        .device_id();
-
     let sender = authenticated_device.get_protocol_address(ServiceIdKind::Aci);
 
     let _ = state
@@ -229,6 +223,12 @@ pub async fn handle_receiving_chunks<
                     ServiceId::parse_from_service_id_string(&pre_key_request.service_id)
                         .ok_or_else(|| anyhow!("Failed to get service id"))?;
 
+                let receiver_device_id = destination
+                    .devices()
+                    .first()
+                    .ok_or_else(|| anyhow!("Error"))?
+                    .device_id();
+
                 let pre_key_response = state
                     .key_manager
                     .handle_get_keys_id_device_id(
@@ -242,6 +242,7 @@ pub async fn handle_receiving_chunks<
 
                 let sender_account = authenticated_device.account();
                 let payload = DeniablePayload::KeyResponse(pre_key_response);
+
                 account_payloads_map
                     .entry(sender_account.clone())
                     .or_insert_with(Vec::new)
@@ -255,6 +256,7 @@ pub async fn handle_receiving_chunks<
                         .expect("Failed to get destination ACI"),
                 )
                 .expect("Failed to parse string to ServiceId");
+
                 let sender_account = authenticated_device.account();
                 let sender_device_id = u32::from(authenticated_device.device().device_id()) as u8;
 
@@ -270,7 +272,9 @@ pub async fn handle_receiving_chunks<
                     .account_manager
                     .get_account(&receiver_service_id)
                     .await?;
+
                 let payload = DeniablePayload::Envelope(envelope);
+
                 account_payloads_map
                     .entry(receiver_account)
                     .or_insert_with(Vec::new)
