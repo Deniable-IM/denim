@@ -86,45 +86,6 @@ where
         Ok(payloads)
     }
 
-    /// Store chunks in outgoing chunk buffer
-    pub async fn enqueue_outgoing_chunk_buffer(
-        &self,
-        receiver: &ProtocolAddress,
-        chunks: Vec<DenimChunk>,
-    ) -> Result<u64> {
-        let mut count = 0;
-        for chunk in chunks {
-            count += self
-                .chunk_cache
-                .insert(
-                    receiver,
-                    Buffer::Receiver,
-                    &chunk,
-                    &Uuid::new_v4().to_string(),
-                )
-                .await?
-        }
-        Ok(count)
-    }
-
-    /// Dequeue all payloads from outgoing chunk buffer
-    pub async fn flush_outgoing_chunk_buffer(
-        &self,
-        receiver: &ProtocolAddress,
-    ) -> Result<Vec<DeniablePayload>> {
-        let chunks = self.chunk_cache.dequeue_outgoing_chunks(receiver).await?;
-        let (payloads, pending_chunks) = self.create_deniable_payloads(chunks)?;
-
-        if !pending_chunks.is_empty() {
-            eprintln!("Error: payloads created but there are still chunks left");
-            let _ = self
-                .enqueue_outgoing_chunk_buffer(receiver, pending_chunks)
-                .await?;
-        }
-
-        Ok(payloads)
-    }
-
     /// Store deniable payloads in outgoing payload buffer
     pub async fn enqueue_outgoing_payload_buffer(
         &self,
@@ -227,6 +188,47 @@ where
             }
         }
         Ok((payloads, pending_chunks))
+    }
+
+    /// Store chunks in outgoing chunk buffer
+    #[cfg(test)]
+    pub async fn enqueue_outgoing_chunk_buffer(
+        &self,
+        receiver: &ProtocolAddress,
+        chunks: Vec<DenimChunk>,
+    ) -> Result<u64> {
+        let mut count = 0;
+        for chunk in chunks {
+            count += self
+                .chunk_cache
+                .insert(
+                    receiver,
+                    Buffer::Receiver,
+                    &chunk,
+                    &Uuid::new_v4().to_string(),
+                )
+                .await?
+        }
+        Ok(count)
+    }
+
+    /// Dequeue all payloads from outgoing chunk buffer
+    #[cfg(test)]
+    pub async fn flush_outgoing_chunk_buffer(
+        &self,
+        receiver: &ProtocolAddress,
+    ) -> Result<Vec<DeniablePayload>> {
+        let chunks = self.chunk_cache.dequeue_outgoing_chunks(receiver).await?;
+        let (payloads, pending_chunks) = self.create_deniable_payloads(chunks)?;
+
+        if !pending_chunks.is_empty() {
+            eprintln!("Error: payloads created but there are still chunks left");
+            let _ = self
+                .enqueue_outgoing_chunk_buffer(receiver, pending_chunks)
+                .await?;
+        }
+
+        Ok(payloads)
     }
 
     #[cfg(test)]

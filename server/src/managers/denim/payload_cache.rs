@@ -118,77 +118,6 @@ where
         payload_id
     }
 
-    pub async fn remove(
-        &self,
-        address: &ProtocolAddress,
-        buffer: Buffer,
-        payload_guid: Vec<String>,
-    ) -> Result<Vec<DeniablePayload>> {
-        let connection = self.pool.get().await?;
-        let queue_key: String = self.get_queue_key(address, buffer);
-        let queue_metadata_key: String = self.get_queue_metadata_key(address, buffer);
-        let queue_total_index_key: String = self.get_queue_index_key(buffer);
-
-        redis::remove(
-            connection,
-            queue_key,
-            queue_metadata_key,
-            queue_total_index_key,
-            payload_guid,
-        )
-        .await
-    }
-
-    pub async fn get_all_payloads(
-        &self,
-        address: &ProtocolAddress,
-        buffer: Buffer,
-    ) -> Result<Vec<DeniablePayload>> {
-        let connection = self.pool.get().await?;
-        let queue_key = self.get_queue_key(address, buffer);
-        let queue_lock_key = self.get_persist_in_progress_key(address, buffer);
-        let queue_metadata_key: String = self.get_queue_metadata_key(address, buffer);
-
-        let (values, _) = redis::get_values(
-            connection,
-            queue_key,
-            queue_lock_key,
-            queue_metadata_key,
-            -1,
-        )
-        .await?;
-        if values.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        Ok(DeniablePayload::decode(values)?)
-    }
-
-    pub async fn get_all_payloads_raw(
-        &self,
-        address: &ProtocolAddress,
-        buffer: Buffer,
-    ) -> Result<Vec<Vec<u8>>> {
-        let connection = self.pool.get().await?;
-        let queue_key = self.get_queue_key(address, buffer);
-        let queue_lock_key = self.get_persist_in_progress_key(address, buffer);
-        let queue_metadata_key: String = self.get_queue_metadata_key(address, buffer);
-
-        let (values, _) = redis::get_values(
-            connection,
-            queue_key,
-            queue_lock_key,
-            queue_metadata_key,
-            -1,
-        )
-        .await?;
-        if values.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        Ok(redis::Bytes::decode(values)?)
-    }
-
     pub async fn dequeue_payload_data(
         &self,
         address: &ProtocolAddress,
@@ -227,6 +156,81 @@ where
         Ok((result, take))
     }
 
+    #[cfg(test)]
+    pub async fn remove(
+        &self,
+        address: &ProtocolAddress,
+        buffer: Buffer,
+        payload_guid: Vec<String>,
+    ) -> Result<Vec<DeniablePayload>> {
+        let connection = self.pool.get().await?;
+        let queue_key: String = self.get_queue_key(address, buffer);
+        let queue_metadata_key: String = self.get_queue_metadata_key(address, buffer);
+        let queue_total_index_key: String = self.get_queue_index_key(buffer);
+
+        redis::remove(
+            connection,
+            queue_key,
+            queue_metadata_key,
+            queue_total_index_key,
+            payload_guid,
+        )
+        .await
+    }
+
+    #[cfg(test)]
+    pub async fn get_all_payloads(
+        &self,
+        address: &ProtocolAddress,
+        buffer: Buffer,
+    ) -> Result<Vec<DeniablePayload>> {
+        let connection = self.pool.get().await?;
+        let queue_key = self.get_queue_key(address, buffer);
+        let queue_lock_key = self.get_persist_in_progress_key(address, buffer);
+        let queue_metadata_key: String = self.get_queue_metadata_key(address, buffer);
+
+        let (values, _) = redis::get_values(
+            connection,
+            queue_key,
+            queue_lock_key,
+            queue_metadata_key,
+            -1,
+        )
+        .await?;
+        if values.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        Ok(DeniablePayload::decode(values)?)
+    }
+
+    #[cfg(test)]
+    pub async fn get_all_payloads_raw(
+        &self,
+        address: &ProtocolAddress,
+        buffer: Buffer,
+    ) -> Result<Vec<Vec<u8>>> {
+        let connection = self.pool.get().await?;
+        let queue_key = self.get_queue_key(address, buffer);
+        let queue_lock_key = self.get_persist_in_progress_key(address, buffer);
+        let queue_metadata_key: String = self.get_queue_metadata_key(address, buffer);
+
+        let (values, _) = redis::get_values(
+            connection,
+            queue_key,
+            queue_lock_key,
+            queue_metadata_key,
+            -1,
+        )
+        .await?;
+        if values.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        Ok(redis::Bytes::decode(values)?)
+    }
+
+    #[cfg(test)]
     pub async fn add_availability_listener(
         &mut self,
         address: &ProtocolAddress,
@@ -235,6 +239,7 @@ where
         add(self.listeners.clone(), address, listener).await;
     }
 
+    #[cfg(test)]
     pub async fn remove_availability_listener(&mut self, address: &ProtocolAddress) {
         remove(self.listeners.clone(), address).await;
     }
